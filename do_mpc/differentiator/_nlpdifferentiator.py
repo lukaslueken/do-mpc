@@ -268,6 +268,22 @@ class NLPDifferentiator:
         A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_lam_not_zero)
         param_sens = self.solve_linear_system(A_num,B_num, verbose=verbose, track_residues=track_residues)
         return param_sens
+    
+    def map_dxdp(self,param_sens):
+        """
+        Maps the parametric sensitivities to the original decision variables.
+        """
+        dx_dp = param_sens[:self.n_x,:]
+        return dx_dp
+    
+    def map_dlamdp(self,param_sens, where_lam_not_zero):
+        """
+        Maps the parametric sensitivities to the original sensitivities of the lagrange multipliers.
+        """
+        dlam_dp = np.zeros((self.n_g+self.n_x,self.n_p))
+        assert len(where_lam_not_zero) == param_sens.shape[0]-self.n_x, "Number of non-zero dual variables does not match number of parametric sensitivities for lagrange multipliers."
+        dlam_dp[where_lam_not_zero,:] = param_sens[self.n_x:,:]
+        return dlam_dp
    
 
     
@@ -355,6 +371,9 @@ if __name__ == '__main__':
 
         z_num, where_lam_not_zero = nlp_diff.extract_primal_dual_solution(r0, eps=1e-6)
         param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_lam_not_zero, verbose=True, track_residues=False)
+        dx_dp = nlp_diff.map_dxdp(param_sens)
+        dlam_dp = nlp_diff.map_dlamdp(param_sens, where_lam_not_zero)
+        
         
     assert 1==2
         
