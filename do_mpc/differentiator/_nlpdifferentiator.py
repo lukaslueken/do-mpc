@@ -173,7 +173,7 @@ class NLPDifferentiator:
         self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
         self.flags['get_sensitivity'] = True
 
-    def get_do_mpc_nlp_sol(mpc):
+    def get_do_mpc_nlp_sol(self,mpc):
         nlp_sol = {}
         nlp_sol["x"] = vertcat(mpc.opt_x_num)
         nlp_sol["x_unscaled"] = vertcat(mpc.opt_x_num_unscaled)
@@ -182,7 +182,22 @@ class NLPDifferentiator:
         nlp_sol["lam_x"] = vertcat(mpc.lam_x_num)
         nlp_sol["p"] = vertcat(mpc.opt_p_num)
         return nlp_sol
+    
+    def reduce_nlp_solution_to_determined(self,nlp_sol):
+        assert self.flags["reduced_nlp"], "NLP is not reduced."
+        
+        # adapt nlp_sol
+        nlp_sol_red = nlp_sol.copy()
+        nlp_sol_red["x"] = nlp_sol["x"][self.det_sym_idx_dict["opt_x"]]
+        nlp_sol_red["lam_x"] = nlp_sol["lam_x"][self.det_sym_idx_dict["opt_x"]] 
+        nlp_sol_red["p"] = nlp_sol["p"][self.det_sym_idx_dict["opt_p"]]
+        
+        # # backwards compatilibity TODO: remove
+        # if "x_unscaled" in nlp_sol:
+        #     nlp_sol_red["x_unscaled"] = nlp_sol["x_unscaled"][det_sym_idx_dict["opt_x"]]
 
+        return nlp_sol_red
+    
     def extract_primal_dual_solution(self, opt_sol, eps=1e-6):
         """
         Extracts primal and dual solution from the solution vector of the optimization problem.
@@ -373,7 +388,7 @@ if __name__ == '__main__':
         param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_lam_not_zero, verbose=True, track_residues=False)
         dx_dp = nlp_diff.map_dxdp(param_sens)
         dlam_dp = nlp_diff.map_dlamdp(param_sens, where_lam_not_zero)
-        
+
         
     assert 1==2
         
