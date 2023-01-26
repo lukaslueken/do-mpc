@@ -1,4 +1,5 @@
 import numpy as np
+import scipy as sp
 from casadi import *
 from casadi.tools import *
 import pdb
@@ -19,7 +20,8 @@ class NLPDifferentiator:
         if type(nlp_container)==dict:
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
         elif hasattr(nlp_container,"opt_x"):
-            self.nlp, self.nlp_bounds = self._get_do_mpc_nlp(nlp_container).copy()
+            nlp, nlp_bounds = self._get_do_mpc_nlp(nlp_container)
+            self.nlp, self.nlp_bounds = nlp.copy(), nlp_bounds.copy()
         else:
             raise ValueError('nlp_container must be a tuple or a do_mpc object.')
         
@@ -188,13 +190,13 @@ class NLPDifferentiator:
         nlp_sol_red["lam_x"] = nlp_sol["lam_x"][self.det_sym_idx_dict["opt_x"]] 
         nlp_sol_red["p"] = nlp_sol["p"][self.det_sym_idx_dict["opt_p"]]
         
-        # # backwards compatilibity TODO: remove
-        # if "x_unscaled" in nlp_sol:
-        #     nlp_sol_red["x_unscaled"] = nlp_sol["x_unscaled"][det_sym_idx_dict["opt_x"]]
+        # backwards compatilibity TODO: remove
+        if "x_unscaled" in nlp_sol:
+            nlp_sol_red["x_unscaled"] = nlp_sol["x_unscaled"][self.det_sym_idx_dict["opt_x"]]
 
         return nlp_sol_red
     
-    def extract_primal_dual_solution(self, opt_sol, eps=1e-6):
+    def extract_primal_dual_solution(self, opt_sol, eps=1e-8):
         """
         Extracts primal and dual solution from the solution vector of the optimization problem.
         """
@@ -232,8 +234,8 @@ class NLPDifferentiator:
         Reduces the sensitivity matrix A and the sensitivity vector B of the NLP such that only the rows and columns corresponding to non-zero dual variables are kept.
         """
         where_keep_idx = [i for i in range(self.n_x)]+list(where_lam_not_zero+self.n_x)
-        A_num = A_num[where_keep_idx,where_keep_idx]
-        B_num = B_num[where_keep_idx,:]
+        A_num = A_num[where_keep_idx,where_keep_idx].full().copy()
+        B_num = B_num[where_keep_idx,:].full().copy()
         return A_num, B_num
 
     def solve_linear_system(self,A_num,B_num, verbose=False, track_residues=False):
@@ -251,7 +253,10 @@ class NLPDifferentiator:
         """
         # 0. Solve sensitivity system for parametrics sensitivities
         try:
-            param_sens = np.linalg.solve(A_num, -B_num)
+            # reg_id = 1e-4*np.eye(A_num.shape[0], dtype=np.float64)
+            # param_sens = sp.linalg.solve(A_num+reg_id, -B_num, assume_a="sym")
+            param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+            # param_sens = np.linalg.solve(A_num, -B_num)
             LSE_method = np.array(["Linear Solver"])
             sens_matrix_rank = A_num.shape[0]
         except np.linalg.LinAlgError:
