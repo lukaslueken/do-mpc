@@ -95,7 +95,7 @@ class NLPDifferentiator:
                 
         return undet_sym_idx,det_sym_idx
 
-    def _reduce_nlp_to_determined(self):
+    def _reduce_nlp(self):
         """
         Reduces the NLP by removing symbolic variables for x and p that are not contained in the objective function or the constraints.
 
@@ -119,10 +119,6 @@ class NLPDifferentiator:
         det_sym_idx_dict = {"opt_x":det_opt_x_idx, "opt_p":det_opt_p_idx}
         undet_sym_idx_dict = {"opt_x":undet_opt_x_idx, "opt_p":undet_opt_p_idx}
 
-        return nlp_red, nlp_bounds_red, det_sym_idx_dict, undet_sym_idx_dict
-
-    def _reduce_nlp(self):
-        nlp_red, nlp_bounds_red, det_sym_idx_dict, undet_sym_idx_dict = self._reduce_nlp_to_determined()
         N_vars_to_remove = len(undet_sym_idx_dict["opt_x"])+len(undet_sym_idx_dict["opt_p"])
         if N_vars_to_remove > 0:
             self.nlp_unreduced, self.nlp_bounds_unreduced = self.nlp, self.nlp_bounds
@@ -185,7 +181,7 @@ class NLPDifferentiator:
     
     def reduce_nlp_solution_to_determined(self,nlp_sol):
         assert self.flags["reduced_nlp"], "NLP is not reduced."
-        
+
         # adapt nlp_sol
         nlp_sol_red = nlp_sol.copy()
         nlp_sol_red["x"] = nlp_sol["x"][self.det_sym_idx_dict["opt_x"]]
@@ -299,7 +295,35 @@ class NLPDifferentiator:
         assert len(where_lam_not_zero) == param_sens.shape[0]-self.n_x, "Number of non-zero dual variables does not match number of parametric sensitivities for lagrange multipliers."
         dlam_dp[where_lam_not_zero,:] = param_sens[self.n_x:,:]
         return dlam_dp
-   
+
+    # TODO: move to separate class for handling do-mpc solution
+    def build_sens_sym_struct(mpc):
+        opt_x = mpc._opt_x
+        opt_p = mpc._opt_p
+        
+        sens_struct = struct_symSX([
+            entry("dxdp",shapestruct=(opt_x,opt_p)),
+        ])
+
+        return sens_struct
+
+    def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
+
+        dxdp_init = dxdp_num.copy()
+        ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
+        ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
+        
+        dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
+        dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
+        
+        assert dxdp_init.shape == sens_struct["dxdp"].shape
+        
+        sens_num = sens_struct(0)
+        
+        sens_num["dxdp"] = dxdp_init
+
+        return sens_num
+
 
     
 def setup_NLP_example_1():
