@@ -29,20 +29,19 @@ class NLPDifferentiator:
             'reduced_nlp':        None,
         }
         
-        # TODO: initialization routines
         # - check wether mpc using scaling
 
         # Initialization Routines
         
         # 1. Detect undetermined symbolic variables and reduce NLP
         if reduce_nlp:
-            self._reduce_nlp()
+            self._remove_unused_sym_vars()
 
         # 2. Get size metrics
         self._get_size_metrics()
 
         # 3. Get symbolic expressions for lagrange multipliers
-        self._get_lagrange_multipliers()
+        self._get_sym_lagrange_multipliers()
         self._stack_primal_dual()
 
         # 4. Get symbolic expressions for Lagrangian
@@ -50,6 +49,9 @@ class NLPDifferentiator:
         
         # 5. Get symbolic expressions for sensitivity matrices
         self._prepare_sensitivity_matrices()
+
+        # 6. Get LDLT factorization
+        self._get_regularized_LDL_factorization()
 
 
 
@@ -97,7 +99,7 @@ class NLPDifferentiator:
                 
         return undet_sym_idx,det_sym_idx
 
-    def _reduce_nlp(self):
+    def _remove_unused_sym_vars(self):
         """
         Reduces the NLP by removing symbolic variables for x and p that are not contained in the objective function or the constraints.
 
@@ -139,8 +141,7 @@ class NLPDifferentiator:
         self.n_g = self.nlp["g"].shape[0]
         self.n_p = self.nlp["p"].shape[0]
 
-
-    def _get_lagrange_multipliers(self):
+    def _get_sym_lagrange_multipliers(self):
         self.nlp["lam_g"] = SX.sym("lam_g",self.n_g,1)
         self.nlp["lam_x"] = SX.sym("lam_x",self.n_x,1)
         self.nlp["lam"] = vertcat(self.nlp["lam_g"],self.nlp["lam_x"])
@@ -151,7 +152,7 @@ class NLPDifferentiator:
     def _get_Lagrangian_sym(self):
         """
         Returns the Lagrangian of the NLP for sensitivity calculation.
-        Attention: It is not verified, wether the NLP is in standard form. 
+        Attention: It is not verified, whether the NLP is in standard form. 
 
         """
         # TODO: verify if NLP is in standard form to simplify further evaluations
@@ -164,7 +165,53 @@ class NLPDifferentiator:
     def _get_B_matrix(self):
         self.B_sym = jacobian(gradient(self.L_sym,self.nlp["z"]),self.nlp["p"])
 
+    def _get_regularized_LDL_factorization(self):
+        """
+        Returns the regularized LDL factorization of the Hessian of the Lagrangian.
+        """
+
+        # TODO: move matrix adapation to individual function (useful for classical LSE approach)
+        
+        # generate symbolic variable alpha, which tracks, whether constraints are active or inactive (alpha = 1 if active, alpha = 0 if inactive)
+        self.alpha = SX.sym("alpha", self.n_g+self.n_x, 1)
+        
+        # symbolic regularization factor for diagonal elements of Hessian
+        self.rho = SX.sym("rho", 1, 1)
+
+        # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
+        I_alpha_mult = SX.eye(self.n_x+self.n_g+self.n_x)
+
+        # set diagonal values of n_g+n_x to alpha values
+        I_alpha_mult[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(self.alpha)
+
+        # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
+        I_alpha_add = SX.eye(self.n_x+self.n_g+self.n_x)
+
+        # set diagonal values of n_g+n_x to (1-alpha) values
+        I_alpha_add[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(1-self.alpha)
+
+        # generate regularization matrix
+        I_rho_add = self.rho*SX.eye(self.n_x+self.n_g+self.n_x)
+
+        # generate adapted A and B matrices
+        self.A_adapted_sym = self.A_sym @ I_alpha_mult + I_alpha_add + I_rho_add
+        self.B_adapted_sym = I_alpha_mult @ self.B_sym
+
+        # generate LDL factorization of adapted A matrix
+        self.D_sym, self.LT_sym, self.LDL_permutation = ldl(self.A_adapted_sym)
+
+        # add identity to self.LT_sym
+        # self.LT_sym = self.LT_sym + SX.eye(self.n_x+self.n_g+self.n_x)
+
+        # set flag for ldl factorization
+        self.flags['get_ldl'] = True
+
+
+        # get symbolic solution of A*x = b with LDL factorization
+        self.x_ldl_sym = ldl_solve(self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation)
+
     def _prepare_sensitivity_matrices(self):
+        # TODO: move to _get_A_matrix and _get_B_matrix
         self._get_A_matrix()
         self._get_B_matrix()
         self.A_func = Function("A", [self.nlp["z"],self.nlp["p"]], [self.A_sym], ["z_opt", "p_opt"], ["A"])
@@ -196,19 +243,19 @@ class NLPDifferentiator:
 
         return nlp_sol_red
     
-    def extract_primal_dual_solution(self, opt_sol, eps=1e-8):
+    def extract_primal_dual_solution(self, nlp_sol, eps=1e-8):
         """
         Extracts primal and dual solution from the solution vector of the optimization problem.
         """
 
-        assert "x" in opt_sol.keys(), "Solution vector does not contain primal solution."
-        assert "lam_g" in opt_sol.keys(), "Solution vector does not contain dual solution to nonlinear constraints."
-        assert "lam_x" in opt_sol.keys(), "Solution vector does not contain dual solution to linear constraints."
-        # assert "P" in opt_sol.keys(), "Solution vector does not contain parameter values."
+        assert "x" in nlp_sol.keys(), "Solution vector does not contain primal solution."
+        assert "lam_g" in nlp_sol.keys(), "Solution vector does not contain dual solution to nonlinear constraints."
+        assert "lam_x" in nlp_sol.keys(), "Solution vector does not contain dual solution to linear constraints."
+        # assert "P" in nlp_sol.keys(), "Solution vector does not contain parameter values."
 
-        x_num = opt_sol["x"]
-        lam_num = vertcat(opt_sol["lam_g"],opt_sol["lam_x"])
-        # p_num = opt_sol["p"]
+        x_num = nlp_sol["x"]
+        lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
+        # p_num = nlp_sol["p"]
 
         where_lam_zero = np.where(np.abs(lam_num).reshape(-1)<eps)[0]
         where_lam_not_zero = np.where(np.abs(lam_num).reshape(-1)>=eps)[0]
@@ -235,7 +282,7 @@ class NLPDifferentiator:
         """
         where_keep_idx = [i for i in range(self.n_x)]+list(where_lam_not_zero+self.n_x)
         A_num = A_num[where_keep_idx,where_keep_idx].full().copy()
-        B_num = B_num[where_keep_idx,:].full().copy()
+        B_num = B_num[where_keep_idx,:].full().copy() #TODO: remove .full()
         return A_num, B_num
 
     def solve_linear_system(self,A_num,B_num, verbose=False, track_residues=False):
@@ -255,6 +302,7 @@ class NLPDifferentiator:
         try:
             # reg_id = 1e-4*np.eye(A_num.shape[0], dtype=np.float64)
             # param_sens = sp.linalg.solve(A_num+reg_id, -B_num, assume_a="sym")
+            # TODO: use sparse solver
             param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
             # param_sens = np.linalg.solve(A_num, -B_num)
             LSE_method = np.array(["Linear Solver"])
