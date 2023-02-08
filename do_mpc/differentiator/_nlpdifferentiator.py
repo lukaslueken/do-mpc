@@ -2,9 +2,22 @@ import numpy as np
 import scipy as sp
 from casadi import *
 from casadi.tools import *
-import pdb
-# from _nlphandler import NLPHandler
 
+
+from functools import wraps
+import time
+
+
+def timeit(func):
+    @wraps(func)
+    def timeit_wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        total_time = end_time - start_time
+        print(f'Function {func.__name__}{args} {kwargs} Took {total_time:.4f} seconds')
+        return result
+    return timeit_wrapper
 
 class NLPDifferentiator:
     """
@@ -15,8 +28,23 @@ class NLPDifferentiator:
         This tool is currently not fully implemented and cannot be used.
     """
 
-    def __init__(self, nlp_container, reduce_nlp=True):
+    def __init__(self, nlp_container):
+        
+        ## Setup
+        self._setup_nlp(nlp_container)
+
+        # TODO: refactor flags
+        self.flags = {}
+        # self.flags['reduced_nlp'] = reduce_nlp
+
+        ## Preparation
+        self._prepare_differentiator()
+                
+
+
+    def _setup_nlp(self,nlp_container):
         #TODO: rewrite initialization to be more streamlined
+        #TODO: check whether mpc using scaling
         if type(nlp_container)==dict:
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
         elif hasattr(nlp_container,"opt_x"):
@@ -24,18 +52,12 @@ class NLPDifferentiator:
             self.nlp, self.nlp_bounds = nlp.copy(), nlp_bounds.copy()
         else:
             raise ValueError('nlp_container must be a tuple or a do_mpc object.')
-        
-        self.flags = {
-            'reduced_nlp':        None,
-        }
-        
-        # - check wether mpc using scaling
 
-        # Initialization Routines
-        
+
+    def _prepare_differentiator(self):
         # 1. Detect undetermined symbolic variables and reduce NLP
-        if reduce_nlp:
-            self._remove_unused_sym_vars()
+        # if self.flags['reduced_nlp']:
+        self._remove_unused_sym_vars()
 
         # 2. Get size metrics
         self._get_size_metrics()
@@ -51,10 +73,11 @@ class NLPDifferentiator:
         self._prepare_sensitivity_matrices()
 
         # 6. Get LDLT factorization
-        self._get_regularized_LDL_factorization()
+        # self._get_regularized_LDL_factorization()
 
 
-
+    def calculate_sensitivities(self):
+        pass
         
     def _get_do_mpc_nlp(self,mpc_object):
         """
@@ -161,9 +184,16 @@ class NLPDifferentiator:
 
     def _get_A_matrix(self):
         self.A_sym = hessian(self.L_sym,self.nlp["z"])[0]
-        
+        self.A_func = Function("A", [self.nlp["z"],self.nlp["p"]], [self.A_sym], ["z_opt", "p_opt"], ["A"])
+
     def _get_B_matrix(self):
         self.B_sym = jacobian(gradient(self.L_sym,self.nlp["z"]),self.nlp["p"])
+        self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
+
+    def _prepare_sensitivity_matrices(self):
+        # TODO: move to _get_A_matrix and _get_B_matrix
+        self._get_A_matrix()
+        self._get_B_matrix()
 
     def _get_regularized_LDL_factorization(self):
         """
@@ -208,15 +238,14 @@ class NLPDifferentiator:
 
 
         # get symbolic solution of A*x = b with LDL factorization
-        self.x_ldl_sym = ldl_solve(self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation)
+        # self.x_ldl_sym = ldl_solve(self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation)
 
-    def _prepare_sensitivity_matrices(self):
-        # TODO: move to _get_A_matrix and _get_B_matrix
-        self._get_A_matrix()
-        self._get_B_matrix()
-        self.A_func = Function("A", [self.nlp["z"],self.nlp["p"]], [self.A_sym], ["z_opt", "p_opt"], ["A"])
-        self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
-        self.flags['get_sensitivity'] = True
+        # self.ls_sol_reg_ldl_func = Function("dzdp", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.x_ldl_sym], ["z_opt", "p_opt", "alpha", "rho"], ["dzdp"])
+        
+        self.ldl_func = Function("ldl_matrices", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation], ["z_opt", "p_opt", "alpha", "rho"], ["B_adapted_sym", "D_sym", "LT_sym", "LDL_permutation"])
+        # self.A_adapted_func = Function("A_adapted", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.A_adapted_sym], ["z_opt", "p_opt", "alpha", "rho"], ["A_adapted"])
+
+        
 
     def get_do_mpc_nlp_sol(self,mpc):
         nlp_sol = {}
@@ -303,7 +332,8 @@ class NLPDifferentiator:
             # reg_id = 1e-4*np.eye(A_num.shape[0], dtype=np.float64)
             # param_sens = sp.linalg.solve(A_num+reg_id, -B_num, assume_a="sym")
             # TODO: use sparse solver
-            param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+            # param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+            param_sens = solve(A_num, -B_num)
             # param_sens = np.linalg.solve(A_num, -B_num)
             LSE_method = np.array(["Linear Solver"])
             sens_matrix_rank = A_num.shape[0]
@@ -323,7 +353,8 @@ class NLPDifferentiator:
         if sens_matrix_rank != A_num.shape[0]:
             raise KeyError("LSE rank not equal to A matrix rank")
         return param_sens
-
+    
+    @timeit
     def get_sensitivities(self, z_num, p_num, where_lam_not_zero, verbose=False, track_residues=False):
         """
         Returns the parametric sensitivities of the NLP.
@@ -350,7 +381,7 @@ class NLPDifferentiator:
         return dlam_dp
 
     # TODO: move to separate class for handling do-mpc solution
-    def build_sens_sym_struct(mpc):
+    def build_sens_sym_struct(self,mpc):
         opt_x = mpc._opt_x
         opt_p = mpc._opt_p
         
@@ -360,9 +391,9 @@ class NLPDifferentiator:
 
         return sens_struct
 
-    def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
+    def assign_num_to_sens_struct(self,sens_struct,dxdp_num,undet_sym_idx_dict):
 
-        dxdp_init = dxdp_num.copy()
+        dxdp_init = dxdp_num#.copy()
         ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
         ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
         
@@ -492,7 +523,7 @@ if __name__ == '__main__':
 
     nlp_diff = NLPDifferentiator(nlp_dict)
 
-    # assert 1==2
+    
 
     # nlp_diff.transform_nlp(variant='full_standard')
 
@@ -519,10 +550,20 @@ if __name__ == '__main__':
         dx_dp = nlp_diff.map_dxdp(param_sens)
         dlam_dp = nlp_diff.map_dlamdp(param_sens, where_lam_not_zero)
 
-    if True:
+    if False:
         eval_dict = validate_fd(dx_dp, S0, nlp_bounds, p_num, x0=r0["x"], n_eval = 1, step_size = 1e-3)
         print(eval_dict)
-    assert 1==2
+
+    if True:
+        # fill nlp_diff.alpha with zero if lam is zero and 1 if not
+        alpha = np.zeros(nlp_diff.alpha.shape)
+        alpha[where_lam_not_zero] = 1
+        rho = 0.0
+        # param_sens_ldl = nlp_diff.ls_sol_reg_ldl_func(z_num,p_num,alpha,rho)
+
+        B_adapted_num, D_num, LT_num, LDL_permutation_num = nlp_diff.ldl_func(z_num,p_num,alpha,rho)
+        param_sens_ldl = ldl_solve(B_adapted_num, D_num, LT_num, np.array(LDL_permutation_num,dtype=int).reshape(-1))
+
         
         
         
