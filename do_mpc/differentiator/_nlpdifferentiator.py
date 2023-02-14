@@ -384,15 +384,15 @@ class NLPDifferentiator:
         ## determine active set
         if method_active_set == "primal":
             g_num = nlp_sol["g"]
-            lbg = self.nlp["lbg"]
-            ubg = self.nlp["ubg"]
-            lbx = self.nlp["lbx"]
-            ubx = self.nlp["ubx"]
+            lbg = self.nlp_bounds["lbg"]
+            ubg = self.nlp_bounds["ubg"]
+            lbx = self.nlp_bounds["lbx"]
+            ubx = self.nlp_bounds["ubx"]
 
-            g_delta_lbg = g_num - lbg
-            g_delta_ubg = g_num - ubg
-            x_delta_lbx = x_num - lbx
-            x_delta_ubx = x_num - ubx
+            g_delta_lbg = g_num.full() - lbg
+            g_delta_ubg = g_num.full() - ubg
+            x_delta_lbx = x_num.full() - lbx
+            x_delta_ubx = x_num.full() - ubx
 
             where_g_inactive = np.where(np.abs(g_delta_lbg)>tol & np.abs(g_delta_ubg)>tol)[0]
             where_x_inactive = np.where(np.abs(x_delta_lbx)>tol & np.abs(x_delta_ubx)>tol)[0]            
@@ -496,7 +496,7 @@ class NLPDifferentiator:
             param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
         elif lin_solver == "casadi":
             param_sens = solve(A_num, -B_num)
-        elif lin_solver == "lstq":
+        elif lin_solver == "lstsq":
             param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
         else:
             raise ValueError("Unknown linear solver.")
@@ -625,71 +625,71 @@ class NLPDifferentiator:
     #     param_sens = self.solve_linear_system(A_num,B_num, verbose=verbose, track_residues=track_residues)
     #     return param_sens
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    # setup NLP
-    nlp, nlp_bounds, nlp_id = setup_NLP_example_1()
-    nlp_dict = {"nlp": nlp, "nlp_bounds": nlp_bounds}
+#     # setup NLP
+#     nlp, nlp_bounds, nlp_id = setup_NLP_example_1()
+#     nlp_dict = {"nlp": nlp, "nlp_bounds": nlp_bounds}
 
-    # instantiate NLPDifferentiator
-    nlp_diff = NLPDifferentiator(nlp_dict)
+#     # instantiate NLPDifferentiator
+#     nlp_diff = NLPDifferentiator(nlp_dict)
 
-    # specify solver
-    def specify_solver(nlp):
-        nlp_sol_opts = {}
-        ipopt_options = {"fixed_variable_treatment": "make_constraint"} # FIXME: very important to get correct lagrange multipliers # TODO: set this as default in do-mpc
-        nlp_sol_opts["expand"] = False
-        ipopt_options["print_level"] = 4
-        nlp_sol_opts["ipopt"] = ipopt_options
-        # nlp_sol_opts["expand"] = False
+#     # specify solver
+#     def specify_solver(nlp):
+#         nlp_sol_opts = {}
+#         ipopt_options = {"fixed_variable_treatment": "make_constraint"} # FIXME: very important to get correct lagrange multipliers # TODO: set this as default in do-mpc
+#         nlp_sol_opts["expand"] = False
+#         ipopt_options["print_level"] = 4
+#         nlp_sol_opts["ipopt"] = ipopt_options
+#         # nlp_sol_opts["expand"] = False
 
-        nlp_solver = nlpsol('S', 'ipopt', nlp,nlp_sol_opts) #,nlpsol_options=ipopt_options
-        return nlp_solver
+#         nlp_solver = nlpsol('S', 'ipopt', nlp,nlp_sol_opts) #,nlpsol_options=ipopt_options
+#         return nlp_solver
     
-    nlp_solver = specify_solver(nlp)
+#     nlp_solver = specify_solver(nlp)
 
-    # solve NLP
-    p_num = np.array((1,1))
-    nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
+#     # solve NLP
+#     p_num = np.array((1,1))
+#     nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
 
-    # get_do_mpc_nlp_sol
-    if nlp_diff.flags["reduced_nlp"]:
-        nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-    else:
-        nlp_sol_red = nlp_sol
-    z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="dual", tol=1e-6)
-    param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
-    dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+#     # get_do_mpc_nlp_sol
+#     if nlp_diff.flags["reduced_nlp"]:
+#         nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+#     else:
+#         nlp_sol_red = nlp_sol
+#     z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="dual", tol=1e-6)
+#     param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
+#     dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
 
 
-    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(r0, method_active_set="dual", tol=1e-6)
-    # param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_cons_active, verbose=True, track_residues=False)
-    # dx_dp = nlp_diff.map_dxdp(param_sens)
-    # dlam_dp = nlp_diff.map_dlamdp(param_sens, where_cons_active)
+#     # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(r0, method_active_set="dual", tol=1e-6)
+#     # param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_cons_active, verbose=True, track_residues=False)
+#     # dx_dp = nlp_diff.map_dxdp(param_sens)
+#     # dlam_dp = nlp_diff.map_dlamdp(param_sens, where_cons_active)
 
-    if True:
-        eval_dict = validate_fd(dx_dp_num, nlp_solver, nlp_bounds, p_num, x0=nlp_sol["x"], n_eval = 1, step_size = 1e-3)
-        print(eval_dict)
+#     if True:
+#         eval_dict = validate_fd(dx_dp_num, nlp_solver, nlp_bounds, p_num, x0=nlp_sol["x"], n_eval = 1, step_size = 1e-3)
+#         print(eval_dict)
 
-    # if False:
-    #     # fill nlp_diff.alpha with zero if lam is zero and 1 if not
-    #     alpha = np.zeros(nlp_diff.alpha.shape)
-    #     alpha[where_cons_active] = 1
-    #     rho = 0.0
-    #     # param_sens_ldl = nlp_diff.ls_sol_reg_ldl_func(z_num,p_num,alpha,rho)
+#     # if False:
+#     #     # fill nlp_diff.alpha with zero if lam is zero and 1 if not
+#     #     alpha = np.zeros(nlp_diff.alpha.shape)
+#     #     alpha[where_cons_active] = 1
+#     #     rho = 0.0
+#     #     # param_sens_ldl = nlp_diff.ls_sol_reg_ldl_func(z_num,p_num,alpha,rho)
 
-    #     B_adapted_num, D_num, LT_num, LDL_permutation_num = nlp_diff.ldl_func(z_num,p_num,alpha,rho)
-    #     param_sens_ldl = ldl_solve(B_adapted_num, D_num, LT_num, np.array(LDL_permutation_num,dtype=int).reshape(-1))
+#     #     B_adapted_num, D_num, LT_num, LDL_permutation_num = nlp_diff.ldl_func(z_num,p_num,alpha,rho)
+#     #     param_sens_ldl = ldl_solve(B_adapted_num, D_num, LT_num, np.array(LDL_permutation_num,dtype=int).reshape(-1))
 
         
         
         
-    # # Test get Lagrangian
-    # nlp_diff.get_Lagrangian_sym()
+#     # # Test get Lagrangian
+#     # nlp_diff.get_Lagrangian_sym()
 
-    # nlp_diff.prepare_hessian()
+#     # nlp_diff.prepare_hessian()
 
-    # H = nlp_diff.get_hessian(**r0)
+#     # H = nlp_diff.get_hessian(**r0)
 
 
     
