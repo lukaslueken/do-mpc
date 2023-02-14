@@ -1,5 +1,5 @@
 import numpy as np
-import scipy as sp
+import scipy.linalg as sp_linalg
 from casadi import *
 from casadi.tools import *
 
@@ -168,7 +168,6 @@ class NLPDifferentiator:
         ## Setup
         self._setup_nlp(nlp_container)
 
-        # TODO: refactor flags
         self.flags = {}
         self.flags['sym_KKT_system'] = False
         self.flags['reduced_nlp'] = False
@@ -178,7 +177,6 @@ class NLPDifferentiator:
                 
     ### SETUP
     def _setup_nlp(self,nlp_container):
-        #TODO: rewrite initialization to be more streamlined
         #TODO: check whether mpc using scaling
         if type(nlp_container)==dict:
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
@@ -283,8 +281,10 @@ class NLPDifferentiator:
             self.nlp, self.nlp_bounds = nlp_red, nlp_bounds_red
             self.det_sym_idx_dict, self.undet_sym_idx_dict = det_sym_idx_dict, undet_sym_idx_dict
             self.flags["reduced_nlp"] = True
+            # self.flags["fully_determined_nlp"] = True
         else:
             self.flags["reduced_nlp"] = False
+            # self.flags["fully_determined_nlp"] = True
             print("NLP formulation does not contain unused variables.")
 
     def _get_size_metrics(self):
@@ -322,7 +322,6 @@ class NLPDifferentiator:
         self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
 
     def _prepare_sensitivity_matrices(self):
-        # TODO: move to _get_A_matrix and _get_B_matrix
         self._get_A_matrix()
         self._get_B_matrix()
         self.flags['sym_KKT_system'] = True
@@ -388,6 +387,7 @@ class NLPDifferentiator:
         return nlp_sol
     
     def reduce_nlp_solution_to_determined(self,nlp_sol):
+        # assert self.flags["fully_determined_nlp"], "NLP is not fully determined, e.g. some symbolic variables are not part of NLP functions f,g."
         assert self.flags["reduced_nlp"], "NLP is not reduced."
 
         # adapt nlp_sol
@@ -490,7 +490,7 @@ class NLPDifferentiator:
                 raise np.linalg.LinAlgError("Solving LSE failed.")
                         
         if track_residues:
-            residues = self._track_residues(A_num, B_num)
+            residues = self._track_residues(A_num, B_num, param_sens)
             return param_sens, residues
         else:
             return param_sens, None
@@ -519,7 +519,7 @@ class NLPDifferentiator:
         """
         where_keep_idx = [i for i in range(self.n_x)]+list(where_cons_active+self.n_x)
         A_num = A_num[where_keep_idx,where_keep_idx].full().copy()
-        B_num = B_num[where_keep_idx,:].full().copy() #TODO: remove .full()
+        B_num = B_num[where_keep_idx,:]#.copy() #TODO: remove .full()
         return A_num, B_num
     
     def _check_rank(self, A_num):
@@ -540,7 +540,7 @@ class NLPDifferentiator:
             parametric sensitivities (n_x,n_p)
         """
         if lin_solver == "scipy":
-            param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+            param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
         elif lin_solver == "casadi":
             param_sens = solve(A_num, -B_num)
         elif lin_solver == "lstq":
@@ -549,7 +549,7 @@ class NLPDifferentiator:
             raise ValueError("Unknown linear solver.")
         return param_sens
     
-    def _track_residures(self, A_num, B_num, param_sens):
+    def _track_residues(self, A_num, B_num, param_sens):
         """
         Tracks the residues of the linear system of equations.
         """
@@ -625,51 +625,58 @@ class NLPDifferentiator:
     #     return param_sens
 
 if __name__ == '__main__':
+
+    # setup NLP
     nlp, nlp_bounds, nlp_id = setup_NLP_example_1()
     nlp_dict = {"nlp": nlp, "nlp_bounds": nlp_bounds}
 
+    # instantiate NLPDifferentiator
     nlp_diff = NLPDifferentiator(nlp_dict)
 
-    
-
-    # nlp_diff.transform_nlp(variant='full_standard')
-
-    if True:
-        # Test 1
-        p_num = np.array((1,1))
-        # S0 = nlpsol('S', 'ipopt', nlp)
-
+    # specify solver
+    def specify_solver(nlp, nlp_bounds):
         nlp_sol_opts = {}
         ipopt_options = {"fixed_variable_treatment": "make_constraint"} # FIXME: very important to get correct lagrange multipliers # TODO: set this as default in do-mpc
         nlp_sol_opts["expand"] = False
-
         ipopt_options["print_level"] = 4
-
         nlp_sol_opts["ipopt"] = ipopt_options
         # nlp_sol_opts["expand"] = False
 
-        S0 = nlpsol('S', 'ipopt', nlp,nlp_sol_opts) #,nlpsol_options=ipopt_options
+        nlp_solver = nlpsol('S', 'ipopt', nlp,nlp_sol_opts) #,nlpsol_options=ipopt_options
+        return nlp_solver
+    
+    nlp_solver = specify_solver(nlp, nlp_bounds)
 
-        r0 = S0(x0=0, p=p_num, **nlp_bounds)
+    # solve NLP
+    p_num = np.array((1,1))
+    nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
 
-        z_num, where_lam_not_zero = nlp_diff.extract_primal_dual_solution(r0, eps=1e-6)
-        param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_lam_not_zero, verbose=True, track_residues=False)
-        dx_dp = nlp_diff.map_dxdp(param_sens)
-        dlam_dp = nlp_diff.map_dlamdp(param_sens, where_lam_not_zero)
+    # get_do_mpc_nlp_sol
+    nlp_sol_red = nlp_sol
+    # nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="dual", tol=1e-6)
+    param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
+    dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
 
-    if False:
-        eval_dict = validate_fd(dx_dp, S0, nlp_bounds, p_num, x0=r0["x"], n_eval = 1, step_size = 1e-3)
-        print(eval_dict)
+
+    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(r0, method_active_set="dual", tol=1e-6)
+    # param_sens = nlp_diff.get_sensitivities(z_num, p_num, where_cons_active, verbose=True, track_residues=False)
+    # dx_dp = nlp_diff.map_dxdp(param_sens)
+    # dlam_dp = nlp_diff.map_dlamdp(param_sens, where_cons_active)
 
     if True:
-        # fill nlp_diff.alpha with zero if lam is zero and 1 if not
-        alpha = np.zeros(nlp_diff.alpha.shape)
-        alpha[where_lam_not_zero] = 1
-        rho = 0.0
-        # param_sens_ldl = nlp_diff.ls_sol_reg_ldl_func(z_num,p_num,alpha,rho)
+        eval_dict = validate_fd(dx_dp_num, nlp_solver, nlp_bounds, p_num, x0=nlp_sol["x"], n_eval = 1, step_size = 1e-3)
+        print(eval_dict)
 
-        B_adapted_num, D_num, LT_num, LDL_permutation_num = nlp_diff.ldl_func(z_num,p_num,alpha,rho)
-        param_sens_ldl = ldl_solve(B_adapted_num, D_num, LT_num, np.array(LDL_permutation_num,dtype=int).reshape(-1))
+    # if False:
+    #     # fill nlp_diff.alpha with zero if lam is zero and 1 if not
+    #     alpha = np.zeros(nlp_diff.alpha.shape)
+    #     alpha[where_cons_active] = 1
+    #     rho = 0.0
+    #     # param_sens_ldl = nlp_diff.ls_sol_reg_ldl_func(z_num,p_num,alpha,rho)
+
+    #     B_adapted_num, D_num, LT_num, LDL_permutation_num = nlp_diff.ldl_func(z_num,p_num,alpha,rho)
+    #     param_sens_ldl = ldl_solve(B_adapted_num, D_num, LT_num, np.array(LDL_permutation_num,dtype=int).reshape(-1))
 
         
         
