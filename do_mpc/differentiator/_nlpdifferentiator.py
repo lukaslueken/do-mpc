@@ -18,33 +18,6 @@ def timeit(func):
         return result
     return timeit_wrapper
 
-def build_sens_sym_struct(mpc):
-    opt_x = mpc._opt_x
-    opt_p = mpc._opt_p
-    
-    sens_struct = struct_symSX([
-        entry("dxdp",shapestruct=(opt_x,opt_p)),
-    ])
-
-    return sens_struct
-
-def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
-
-    dxdp_init = dxdp_num#.copy()
-    ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
-    ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
-    
-    dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
-    dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
-    
-    assert dxdp_init.shape == sens_struct["dxdp"].shape
-    
-    sens_num = sens_struct(0)
-    
-    sens_num["dxdp"] = dxdp_init
-
-    return sens_num
-
 def validate_fd(sens_vals, nlp_solver, nlp_bounds, p_num, x0, n_eval = 10, step_size = 1e-3):
     
     # define function to solve nlp for various bounds
@@ -154,6 +127,45 @@ def reconstruct_nlp(nlp_standard_full_dict):
     return nlp_standard_full
 
 
+### Helper Functions NLP Differentiator
+def build_sens_sym_struct(mpc):
+    opt_x = mpc._opt_x
+    opt_p = mpc._opt_p
+    
+    sens_struct = struct_symSX([
+        entry("dxdp",shapestruct=(opt_x,opt_p)),
+    ])
+
+    return sens_struct
+
+def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
+
+    dxdp_init = dxdp_num#.copy()
+    ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
+    ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
+    
+    dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
+    dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
+    
+    assert dxdp_init.shape == sens_struct["dxdp"].shape
+    
+    sens_num = sens_struct(0)
+    
+    sens_num["dxdp"] = dxdp_init
+
+    return sens_num
+
+def get_do_mpc_nlp_sol(mpc):
+    nlp_sol = {}
+    nlp_sol["x"] = vertcat(mpc.opt_x_num)
+    nlp_sol["x_unscaled"] = vertcat(mpc.opt_x_num_unscaled)
+    nlp_sol["g"] = vertcat(mpc.opt_g_num)
+    nlp_sol["lam_g"] = vertcat(mpc.lam_g_num)
+    nlp_sol["lam_x"] = vertcat(mpc.lam_x_num)
+    nlp_sol["p"] = vertcat(mpc.opt_p_num)
+    return nlp_sol
+
+### NLP Differentiator
 class NLPDifferentiator:
     """
     Documentation for NLPDifferentiator.
@@ -326,66 +338,7 @@ class NLPDifferentiator:
         self._get_B_matrix()
         self.flags['sym_KKT_system'] = True
 
-    def _get_regularized_LDL_factorization(self):
-        """
-        Returns the regularized LDL factorization of the Hessian of the Lagrangian.
-        """
-        # TODO: remove (use sparse QR factorization instead)
-                
-        # generate symbolic variable alpha, which tracks, whether constraints are active or inactive (alpha = 1 if active, alpha = 0 if inactive)
-        self.alpha = SX.sym("alpha", self.n_g+self.n_x, 1)
-        
-        # symbolic regularization factor for diagonal elements of Hessian
-        self.rho = SX.sym("rho", 1, 1)
-
-        # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
-        I_alpha_mult = SX.eye(self.n_x+self.n_g+self.n_x)
-
-        # set diagonal values of n_g+n_x to alpha values
-        I_alpha_mult[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(self.alpha)
-
-        # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
-        I_alpha_add = SX.eye(self.n_x+self.n_g+self.n_x)
-
-        # set diagonal values of n_g+n_x to (1-alpha) values
-        I_alpha_add[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(1-self.alpha)
-
-        # generate regularization matrix
-        I_rho_add = self.rho*SX.eye(self.n_x+self.n_g+self.n_x)
-
-        # generate adapted A and B matrices
-        self.A_adapted_sym = self.A_sym @ I_alpha_mult + I_alpha_add + I_rho_add
-        self.B_adapted_sym = I_alpha_mult @ self.B_sym
-
-        # generate LDL factorization of adapted A matrix
-        self.D_sym, self.LT_sym, self.LDL_permutation = ldl(self.A_adapted_sym)
-
-        # add identity to self.LT_sym
-        # self.LT_sym = self.LT_sym + SX.eye(self.n_x+self.n_g+self.n_x)
-
-        # set flag for ldl factorization
-        self.flags['get_ldl'] = True
-
-
-        # get symbolic solution of A*x = b with LDL factorization
-        # self.x_ldl_sym = ldl_solve(self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation)
-
-        # self.ls_sol_reg_ldl_func = Function("dzdp", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.x_ldl_sym], ["z_opt", "p_opt", "alpha", "rho"], ["dzdp"])
-        
-        self.ldl_func = Function("ldl_matrices", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation], ["z_opt", "p_opt", "alpha", "rho"], ["B_adapted_sym", "D_sym", "LT_sym", "LDL_permutation"])
-        # self.A_adapted_func = Function("A_adapted", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.A_adapted_sym], ["z_opt", "p_opt", "alpha", "rho"], ["A_adapted"])
-
-    ### ALGORITHM
-    def get_do_mpc_nlp_sol(self,mpc):
-        nlp_sol = {}
-        nlp_sol["x"] = vertcat(mpc.opt_x_num)
-        nlp_sol["x_unscaled"] = vertcat(mpc.opt_x_num_unscaled)
-        nlp_sol["g"] = vertcat(mpc.opt_g_num)
-        nlp_sol["lam_g"] = vertcat(mpc.lam_g_num)
-        nlp_sol["lam_x"] = vertcat(mpc.lam_x_num)
-        nlp_sol["p"] = vertcat(mpc.opt_p_num)
-        return nlp_sol
-    
+    ### ALGORITHM    
     def reduce_nlp_solution_to_determined(self,nlp_sol):
         # assert self.flags["fully_determined_nlp"], "NLP is not fully determined, e.g. some symbolic variables are not part of NLP functions f,g."
         assert self.flags["reduced_nlp"], "NLP is not reduced."
@@ -572,8 +525,56 @@ class NLPDifferentiator:
         dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
         return dlam_dp
 
-
     ### LEGACY CODE ###
+    # def _get_regularized_LDL_factorization(self):
+    #     """
+    #     Returns the regularized LDL factorization of the Hessian of the Lagrangian.
+    #     """
+    #     # TODO: remove (use sparse QR factorization instead)
+                
+    #     # generate symbolic variable alpha, which tracks, whether constraints are active or inactive (alpha = 1 if active, alpha = 0 if inactive)
+    #     self.alpha = SX.sym("alpha", self.n_g+self.n_x, 1)
+        
+    #     # symbolic regularization factor for diagonal elements of Hessian
+    #     self.rho = SX.sym("rho", 1, 1)
+
+    #     # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
+    #     I_alpha_mult = SX.eye(self.n_x+self.n_g+self.n_x)
+
+    #     # set diagonal values of n_g+n_x to alpha values
+    #     I_alpha_mult[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(self.alpha)
+
+    #     # generate identity matrix of size n_x+n_g+n_x (n_x for primal variables, n_g for dual variables of nonlinear constraints, n_x for dual variables of linear constraints)
+    #     I_alpha_add = SX.eye(self.n_x+self.n_g+self.n_x)
+
+    #     # set diagonal values of n_g+n_x to (1-alpha) values
+    #     I_alpha_add[self.n_x:self.n_x+self.n_g+self.n_x,self.n_x:self.n_x+self.n_g+self.n_x] = diag(1-self.alpha)
+
+    #     # generate regularization matrix
+    #     I_rho_add = self.rho*SX.eye(self.n_x+self.n_g+self.n_x)
+
+    #     # generate adapted A and B matrices
+    #     self.A_adapted_sym = self.A_sym @ I_alpha_mult + I_alpha_add + I_rho_add
+    #     self.B_adapted_sym = I_alpha_mult @ self.B_sym
+
+    #     # generate LDL factorization of adapted A matrix
+    #     self.D_sym, self.LT_sym, self.LDL_permutation = ldl(self.A_adapted_sym)
+
+    #     # add identity to self.LT_sym
+    #     # self.LT_sym = self.LT_sym + SX.eye(self.n_x+self.n_g+self.n_x)
+
+    #     # set flag for ldl factorization
+    #     self.flags['get_ldl'] = True
+
+
+    #     # get symbolic solution of A*x = b with LDL factorization
+    #     # self.x_ldl_sym = ldl_solve(self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation)
+
+    #     # self.ls_sol_reg_ldl_func = Function("dzdp", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.x_ldl_sym], ["z_opt", "p_opt", "alpha", "rho"], ["dzdp"])
+        
+    #     self.ldl_func = Function("ldl_matrices", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation], ["z_opt", "p_opt", "alpha", "rho"], ["B_adapted_sym", "D_sym", "LT_sym", "LDL_permutation"])
+    #     # self.A_adapted_func = Function("A_adapted", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.A_adapted_sym], ["z_opt", "p_opt", "alpha", "rho"], ["A_adapted"])
+
     # def solve_linear_system(self,A_num,B_num, verbose=False, track_residues=False):
     #     """Function to solve linear system of equations to calculate parametric sensitivities.
 
@@ -634,7 +635,7 @@ if __name__ == '__main__':
     nlp_diff = NLPDifferentiator(nlp_dict)
 
     # specify solver
-    def specify_solver(nlp, nlp_bounds):
+    def specify_solver(nlp):
         nlp_sol_opts = {}
         ipopt_options = {"fixed_variable_treatment": "make_constraint"} # FIXME: very important to get correct lagrange multipliers # TODO: set this as default in do-mpc
         nlp_sol_opts["expand"] = False
@@ -645,15 +646,17 @@ if __name__ == '__main__':
         nlp_solver = nlpsol('S', 'ipopt', nlp,nlp_sol_opts) #,nlpsol_options=ipopt_options
         return nlp_solver
     
-    nlp_solver = specify_solver(nlp, nlp_bounds)
+    nlp_solver = specify_solver(nlp)
 
     # solve NLP
     p_num = np.array((1,1))
     nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
 
     # get_do_mpc_nlp_sol
-    nlp_sol_red = nlp_sol
-    # nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    if nlp_diff.flags["reduced_nlp"]:
+        nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    else:
+        nlp_sol_red = nlp_sol
     z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="dual", tol=1e-6)
     param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
     dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
