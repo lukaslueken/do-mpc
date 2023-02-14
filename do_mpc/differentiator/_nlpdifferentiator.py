@@ -330,28 +330,28 @@ class NLPDifferentiator:
         return z_num, where_cons_active
 
     
-    def extract_primal_dual_solution(self, nlp_sol, eps=1e-8):
-        """
-        Extracts primal and dual solution from the solution vector of the optimization problem.
-        """
+    # def extract_primal_dual_solution(self, nlp_sol, eps=1e-8):
+    #     """
+    #     Extracts primal and dual solution from the solution vector of the optimization problem.
+    #     """
 
-        assert "x" in nlp_sol.keys(), "Solution vector does not contain primal solution."
-        assert "lam_g" in nlp_sol.keys(), "Solution vector does not contain dual solution to nonlinear constraints."
-        assert "lam_x" in nlp_sol.keys(), "Solution vector does not contain dual solution to linear constraints."
-        # assert "P" in nlp_sol.keys(), "Solution vector does not contain parameter values."
+    #     assert "x" in nlp_sol.keys(), "Solution vector does not contain primal solution."
+    #     assert "lam_g" in nlp_sol.keys(), "Solution vector does not contain dual solution to nonlinear constraints."
+    #     assert "lam_x" in nlp_sol.keys(), "Solution vector does not contain dual solution to linear constraints."
+    #     # assert "P" in nlp_sol.keys(), "Solution vector does not contain parameter values."
 
-        x_num = nlp_sol["x"]
-        lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
-        # p_num = nlp_sol["p"]
+    #     x_num = nlp_sol["x"]
+    #     lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
+    #     # p_num = nlp_sol["p"]
 
-        where_lam_zero = np.where(np.abs(lam_num).reshape(-1)<eps)[0]
-        where_lam_not_zero = np.where(np.abs(lam_num).reshape(-1)>=eps)[0]
+    #     where_lam_zero = np.where(np.abs(lam_num).reshape(-1)<eps)[0]
+    #     where_lam_not_zero = np.where(np.abs(lam_num).reshape(-1)>=eps)[0]
 
-        lam_num[where_lam_zero] = 0.0
+    #     lam_num[where_lam_zero] = 0.0
 
-        z_num = vertcat(x_num,lam_num)
+    #     z_num = vertcat(x_num,lam_num)
 
-        return z_num, where_lam_not_zero
+    #     return z_num, where_lam_not_zero
 
 
     def calculate_sensitivities(self):
@@ -367,54 +367,88 @@ class NLPDifferentiator:
         B_num = self.B_func(z_num, p_num)
         return A_num, B_num
     
-    def _reduce_sensitivity_matrices(self, A_num, B_num, where_lam_not_zero):
+    def _reduce_sensitivity_matrices(self, A_num, B_num, where_cons_active):
         """
         Reduces the sensitivity matrix A and the sensitivity vector B of the NLP such that only the rows and columns corresponding to non-zero dual variables are kept.
         """
-        where_keep_idx = [i for i in range(self.n_x)]+list(where_lam_not_zero+self.n_x)
+        where_keep_idx = [i for i in range(self.n_x)]+list(where_cons_active+self.n_x)
         A_num = A_num[where_keep_idx,where_keep_idx].full().copy()
         B_num = B_num[where_keep_idx,:].full().copy() #TODO: remove .full()
         return A_num, B_num
-
-    def solve_linear_system(self,A_num,B_num, verbose=False, track_residues=False):
-        """Function to solve linear system of equations to calculate parametric sensitivities.
-
+    
+    def _check_rank(self, A_num):
+        """
+        Checks if the sensitivity matrix A has full rank.
+        """
+        if np.linalg.matrix_rank(A_num) < A_num.shape[0]:
+            raise KeyError("Sensitivity matrix A does not have full rank.")
+    
+    def _solve_linear_system(self,A_num,B_num, lin_solver="scipy"):
+        """
+        Solves the linear system of equations to calculate parametric sensitivities.
         Args:
             A_num: Numeric A-Matrix (dF/dz).
             B_num: Numeric B-Matrix (dF/dp).
-
+            lin_solver: Linear solver to use. Options are "scipy", "casadi" and "lstq".
         Returns:
             parametric sensitivities (n_x,n_p)
-
-        Raises:
-            KeyError: A-Matrix does not have full rank (i.e. is not invertible).
         """
-        # 0. Solve sensitivity system for parametrics sensitivities
-        try:
-            # reg_id = 1e-4*np.eye(A_num.shape[0], dtype=np.float64)
-            # param_sens = sp.linalg.solve(A_num+reg_id, -B_num, assume_a="sym")
-            # TODO: use sparse solver
-            # param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+        if lin_solver == "scipy":
+            param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+        elif lin_solver == "casadi":
             param_sens = solve(A_num, -B_num)
-            # param_sens = np.linalg.solve(A_num, -B_num)
-            LSE_method = np.array(["Linear Solver"])
-            sens_matrix_rank = A_num.shape[0]
-        except np.linalg.LinAlgError:
-            param_sens, residues, sens_matrix_rank, s = np.linalg.lstsq(A_num, -B_num)
-            LSE_method = np.array(["Least Squares"])
-            print("LinAlgError suppressed, try least squares solution.")
-        
-        if track_residues:
-            sens_residues = np.linalg.norm(A_num @ param_sens + B_num, ord = "fro")
-
-        if verbose:
-            print("LSE method: ", LSE_method)
-            if track_residues:
-                print("LSE residues: ", sens_residues)
-
-        if sens_matrix_rank != A_num.shape[0]:
-            raise KeyError("LSE rank not equal to A matrix rank")
+        elif lin_solver == "lstq":
+            param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
+        else:
+            raise ValueError("Unknown linear solver.")
         return param_sens
+    
+    def _track_residures(self, A_num, B_num, param_sens):
+        """
+        Tracks the residues of the linear system of equations.
+        """
+        residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
+        return residues
+
+    # def solve_linear_system(self,A_num,B_num, verbose=False, track_residues=False):
+    #     """Function to solve linear system of equations to calculate parametric sensitivities.
+
+    #     Args:
+    #         A_num: Numeric A-Matrix (dF/dz).
+    #         B_num: Numeric B-Matrix (dF/dp).
+
+    #     Returns:
+    #         parametric sensitivities (n_x,n_p)
+
+    #     Raises:
+    #         KeyError: A-Matrix does not have full rank (i.e. is not invertible).
+    #     """
+    #     # 0. Solve sensitivity system for parametrics sensitivities
+    #     try:
+    #         # reg_id = 1e-4*np.eye(A_num.shape[0], dtype=np.float64)
+    #         # param_sens = sp.linalg.solve(A_num+reg_id, -B_num, assume_a="sym")
+    #         # TODO: use sparse solver
+    #         # param_sens = sp.linalg.solve(A_num, -B_num, assume_a="sym")
+    #         param_sens = solve(A_num, -B_num)
+    #         # param_sens = np.linalg.solve(A_num, -B_num)
+    #         LSE_method = np.array(["Linear Solver"])
+    #         sens_matrix_rank = A_num.shape[0]
+    #     except np.linalg.LinAlgError:
+    #         param_sens, residues, sens_matrix_rank, s = np.linalg.lstsq(A_num, -B_num)
+    #         LSE_method = np.array(["Least Squares"])
+    #         print("LinAlgError suppressed, try least squares solution.")
+        
+    #     if track_residues:
+    #         sens_residues = np.linalg.norm(A_num @ param_sens + B_num, ord = "fro")
+
+    #     if verbose:
+    #         print("LSE method: ", LSE_method)
+    #         if track_residues:
+    #             print("LSE residues: ", sens_residues)
+
+    #     if sens_matrix_rank != A_num.shape[0]:
+    #         raise KeyError("LSE rank not equal to A matrix rank")
+    #     return param_sens
     
     @timeit
     def get_sensitivities(self, z_num, p_num, where_lam_not_zero, verbose=False, track_residues=False):
