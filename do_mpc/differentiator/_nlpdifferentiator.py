@@ -329,33 +329,30 @@ class NLPDifferentiator:
 
         return z_num, where_cons_active
 
-    
-    # def extract_primal_dual_solution(self, nlp_sol, eps=1e-8):
-    #     """
-    #     Extracts primal and dual solution from the solution vector of the optimization problem.
-    #     """
 
-    #     assert "x" in nlp_sol.keys(), "Solution vector does not contain primal solution."
-    #     assert "lam_g" in nlp_sol.keys(), "Solution vector does not contain dual solution to nonlinear constraints."
-    #     assert "lam_x" in nlp_sol.keys(), "Solution vector does not contain dual solution to linear constraints."
-    #     # assert "P" in nlp_sol.keys(), "Solution vector does not contain parameter values."
+    def calculate_sensitivities(self, z_num, p_num, where_lam_not_zero, lin_solver="scipy", check_rank=False, track_residues=False):
+        """
+        Calculates the sensitivities of the NLP solution.
+        Args:
+            nlp_sol: dict containing the NLP solution.
+            method_active_set: str, either "primal" or "dual". Determines the active set by the primal or dual solution.
+            tol: float, tolerance for determining the active set.
+        Returns:
+        """
+        
+        A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
+        A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_lam_not_zero)
+        if check_rank:
+            self._check_rank(A_num)
 
-    #     x_num = nlp_sol["x"]
-    #     lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
-    #     # p_num = nlp_sol["p"]
+        # solve LSE to get parametric sensitivities
+        param_sens = self.solve_linear_system(A_num,B_num, lin_solver=lin_solver)
 
-    #     where_lam_zero = np.where(np.abs(lam_num).reshape(-1)<eps)[0]
-    #     where_lam_not_zero = np.where(np.abs(lam_num).reshape(-1)>=eps)[0]
-
-    #     lam_num[where_lam_zero] = 0.0
-
-    #     z_num = vertcat(x_num,lam_num)
-
-    #     return z_num, where_lam_not_zero
-
-
-    def calculate_sensitivities(self):
-        pass
+        if track_residues:
+            residues = self._track_residues(A_num, B_num)
+            return param_sens, residues
+        else:
+            return param_sens, None
     
     def _get_sensitivity_matrices(self, z_num, p_num):
         """
