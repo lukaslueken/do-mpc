@@ -35,13 +35,14 @@ class NLPDifferentiator:
 
         # TODO: refactor flags
         self.flags = {}
-        # self.flags['reduced_nlp'] = reduce_nlp
+        self.flags['sym_KKT_system'] = False
+        self.flags['reduced_nlp'] = False
 
         ## Preparation
         self._prepare_differentiator()
                 
 
-
+    ### SETUP
     def _setup_nlp(self,nlp_container):
         #TODO: rewrite initialization to be more streamlined
         #TODO: check whether mpc using scaling
@@ -53,7 +54,7 @@ class NLPDifferentiator:
         else:
             raise ValueError('nlp_container must be a tuple or a do_mpc object.')
 
-
+    ### PREPARATION
     def _prepare_differentiator(self):
         # 1. Detect undetermined symbolic variables and reduce NLP
         # if self.flags['reduced_nlp']:
@@ -74,10 +75,6 @@ class NLPDifferentiator:
 
         # 6. Get LDLT factorization
         # self._get_regularized_LDL_factorization()
-
-
-    def calculate_sensitivities(self):
-        pass
         
     def _get_do_mpc_nlp(self,mpc_object):
         """
@@ -180,7 +177,7 @@ class NLPDifferentiator:
         """
         # TODO: verify if NLP is in standard form to simplify further evaluations
         self.L_sym = self.nlp["f"] + self.nlp['lam_g'].T @ self.nlp['g'] + self.nlp['lam_x'].T @ self.nlp['x']
-        self.flags['get_Lagrangian'] = True
+        # self.flags['get_Lagrangian'] = True
 
     def _get_A_matrix(self):
         self.A_sym = hessian(self.L_sym,self.nlp["z"])[0]
@@ -194,14 +191,14 @@ class NLPDifferentiator:
         # TODO: move to _get_A_matrix and _get_B_matrix
         self._get_A_matrix()
         self._get_B_matrix()
+        self.flags['sym_KKT_system'] = True
 
     def _get_regularized_LDL_factorization(self):
         """
         Returns the regularized LDL factorization of the Hessian of the Lagrangian.
         """
-
-        # TODO: move matrix adapation to individual function (useful for classical LSE approach)
-        
+        # TODO: remove (use sparse QR factorization instead)
+                
         # generate symbolic variable alpha, which tracks, whether constraints are active or inactive (alpha = 1 if active, alpha = 0 if inactive)
         self.alpha = SX.sym("alpha", self.n_g+self.n_x, 1)
         
@@ -245,8 +242,7 @@ class NLPDifferentiator:
         self.ldl_func = Function("ldl_matrices", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.B_adapted_sym, self.D_sym, self.LT_sym, self.LDL_permutation], ["z_opt", "p_opt", "alpha", "rho"], ["B_adapted_sym", "D_sym", "LT_sym", "LDL_permutation"])
         # self.A_adapted_func = Function("A_adapted", [self.nlp["z"],self.nlp["p"], self.alpha, self.rho], [self.A_adapted_sym], ["z_opt", "p_opt", "alpha", "rho"], ["A_adapted"])
 
-        
-
+    ### ALGORITHM
     def get_do_mpc_nlp_sol(self,mpc):
         nlp_sol = {}
         nlp_sol["x"] = vertcat(mpc.opt_x_num)
@@ -271,6 +267,68 @@ class NLPDifferentiator:
             nlp_sol_red["x_unscaled"] = nlp_sol["x_unscaled"][self.det_sym_idx_dict["opt_x"]]
 
         return nlp_sol_red
+
+    def extract_active_primal_dual_solution(self, nlp_sol, method_active_set="dual", tol=1e-6):
+        """
+        This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
+        Args:
+            nlp_sol: dict containing the NLP solution.
+            method_active_set: str, either "primal" or "dual". Determines the active set by the primal or dual solution.
+
+        Returns:
+            z_num: numpy array containing the active primal and dual solution.
+            where_lam_not_zero: numpy array containing the indices of the active constraints.
+
+        Raises:
+            KeyError: If the NLP solution does not contain the primal or dual solution.        
+        """
+        if "x" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain primal solution.")
+        if "lam_g" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain dual solution to nonlinear constraints.")
+        if "lam_x" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain dual solution to linear constraints.")
+        if "g" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain nonlinear constraints.")
+        
+        x_num = nlp_sol["x"]
+        lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
+
+        ## determine active set
+        if method_active_set == "primal":
+            g_num = nlp_sol["g"]
+            lbg = self.nlp["lbg"]
+            ubg = self.nlp["ubg"]
+            lbx = self.nlp["lbx"]
+            ubx = self.nlp["ubx"]
+
+            g_delta_lbg = g_num - lbg
+            g_delta_ubg = g_num - ubg
+            x_delta_lbx = x_num - lbx
+            x_delta_ubx = x_num - ubx
+
+            where_g_inactive = np.where(np.abs(g_delta_lbg)>tol & np.abs(g_delta_ubg)>tol)[0]
+            where_x_inactive = np.where(np.abs(x_delta_lbx)>tol & np.abs(x_delta_ubx)>tol)[0]            
+            where_g_active = np.where(np.abs(g_delta_lbg)<=tol | np.abs(g_delta_ubg)<=tol)[0]
+            where_x_active = np.where(np.abs(x_delta_lbx)<=tol | np.abs(x_delta_ubx)<=tol)[0]
+
+            where_cons_active = np.concatenate((where_g_active,where_x_active+self.n_g))
+            where_cons_inactive = np.concatenate((where_g_inactive,where_x_inactive+self.n_g))
+        
+        elif method_active_set == "dual":
+            where_cons_active = np.where(np.abs(lam_num)>tol)[0]
+            where_cons_inactive = np.where(np.abs(lam_num)<=tol)[0]
+        else:
+            raise ValueError("Unknown method for determining active set.")
+
+        # set lagrange multipliers of inactive constraints to zero
+        lam_num[where_cons_inactive] = 0
+        
+        # stack primal and dual solution
+        z_num = vertcat(x_num,lam_num)
+
+        return z_num, where_cons_active
+
     
     def extract_primal_dual_solution(self, nlp_sol, eps=1e-8):
         """
@@ -294,12 +352,16 @@ class NLPDifferentiator:
         z_num = vertcat(x_num,lam_num)
 
         return z_num, where_lam_not_zero
+
+
+    def calculate_sensitivities(self):
+        pass
     
     def _get_sensitivity_matrices(self, z_num, p_num):
         """
         Returns the sensitivity matrix A and the sensitivity vector B of the NLP.
         """
-        if self.flags['get_sensitivity'] is False:
+        if self.flags['sym_KKT_system'] is False:
             raise RuntimeError('No symbolic expression for sensitivitiy system computed yet.')        
         A_num = self.A_func(z_num, p_num)
         B_num = self.B_func(z_num, p_num)
