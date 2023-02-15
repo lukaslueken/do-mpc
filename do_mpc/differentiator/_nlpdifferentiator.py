@@ -394,15 +394,16 @@ class NLPDifferentiator:
             x_delta_lbx = x_num.full() - lbx
             x_delta_ubx = x_num.full() - ubx
 
-            where_g_inactive = np.where(np.abs(g_delta_lbg)>tol & np.abs(g_delta_ubg)>tol)[0]
-            where_x_inactive = np.where(np.abs(x_delta_lbx)>tol & np.abs(x_delta_ubx)>tol)[0]            
-            where_g_active = np.where(np.abs(g_delta_lbg)<=tol | np.abs(g_delta_ubg)<=tol)[0]
-            where_x_active = np.where(np.abs(x_delta_lbx)<=tol | np.abs(x_delta_ubx)<=tol)[0]
+            where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
+            where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
+            where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
+            where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
 
             where_cons_active = np.concatenate((where_g_active,where_x_active+self.n_g))
             where_cons_inactive = np.concatenate((where_g_inactive,where_x_inactive+self.n_g))
         
         elif method_active_set == "dual":
+            # remark: works much worse compared to "primal" method, strongly dependent on scaling of constraints
             where_cons_active = np.where(np.abs(lam_num)>tol)[0]
             where_cons_inactive = np.where(np.abs(lam_num)<=tol)[0]
         else:
@@ -471,8 +472,8 @@ class NLPDifferentiator:
         Reduces the sensitivity matrix A and the sensitivity vector B of the NLP such that only the rows and columns corresponding to non-zero dual variables are kept.
         """
         where_keep_idx = [i for i in range(self.n_x)]+list(where_cons_active+self.n_x)
-        A_num = A_num[where_keep_idx,where_keep_idx].full().copy()
-        B_num = B_num[where_keep_idx,:]#.copy() #TODO: remove .full()
+        A_num = A_num[where_keep_idx,where_keep_idx]
+        B_num = B_num[where_keep_idx,:]
         return A_num, B_num
     
     def _check_rank(self, A_num):
@@ -493,9 +494,14 @@ class NLPDifferentiator:
             parametric sensitivities (n_x,n_p)
         """
         if lin_solver == "scipy":
-            param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
+            # param_sens = sp_linalg.solve(A_num, -B_num)
+            # param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
+            param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
         elif lin_solver == "casadi":
-            param_sens = solve(A_num, -B_num)
+            # param_sens = solve(A_num, -B_num)
+            linsol = Linsol("name","qr",A_num.sparsity())
+            # linsol = Linsol("name","csparsecholesky",A_num.sparsity())
+            param_sens = linsol.solve(A_num,-B_num)
         elif lin_solver == "lstsq":
             param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
         else:
@@ -506,7 +512,8 @@ class NLPDifferentiator:
         """
         Tracks the residues of the linear system of equations.
         """
-        residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
+        # residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
+        residues = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
         return residues
 
     def _map_dxdp(self,param_sens):
