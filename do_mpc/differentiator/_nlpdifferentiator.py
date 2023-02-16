@@ -5,6 +5,13 @@ from casadi.tools import *
 
 from functools import wraps
 import time
+import warnings
+# set np.linalg.LinalgWarning to np.linalg.LinalgError
+warnings.filterwarnings("error",category=sp_linalg.LinAlgWarning)
+
+
+
+# warnings.filterwarnings("error")
 
 
 def timeit(func):
@@ -488,7 +495,9 @@ class NLPDifferentiator:
             active_cons = active_cons_primal & active_cons_lam
             assert sum(active_cons)+ sum(inactive_cons) == self.n_g+self.n_x
 
+
             ### specify indices of active and inactive constraints
+
             where_cons_inactive = np.where(inactive_cons)[0]
             where_cons_active = np.where(active_cons)[0]
 
@@ -497,6 +506,7 @@ class NLPDifferentiator:
 
         # set lagrange multipliers of inactive constraints to zero
         lam_num[where_cons_inactive] = 0
+        # lam_num[np.where(inactive_cons_primal)[0]] = 0
         
         # stack primal and dual solution
         z_num = vertcat(x_num,lam_num)
@@ -516,13 +526,17 @@ class NLPDifferentiator:
         A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
         A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_cons_active)
         
+        # assert np.all(sp_linalg.eigvals(A_num)>0)
+        # assert where_cons_active.shape[0]<= self.n_x
+
         if check_rank:
             self._check_rank(A_num)
 
         # solve LSE to get parametric sensitivities
         try:
             param_sens = self._solve_linear_system(A_num,B_num, lin_solver=lin_solver)
-        except np.linalg.LinAlgError:
+        # except np.linalg.LinAlgError:
+        except:
             if lstsq_fallback:
                 print("Solving LSE failed. Falling back to least squares solution.")
                 param_sens = self._solve_linear_system(A_num,B_num, lin_solver="lstsq")
@@ -531,6 +545,7 @@ class NLPDifferentiator:
                         
         if track_residues:
             residues = self._track_residues(A_num, B_num, param_sens)
+            # assert residues<=1e-12
             return param_sens, residues
         else:
             return param_sens, None
@@ -582,12 +597,13 @@ class NLPDifferentiator:
         if lin_solver == "scipy":
             # param_sens = sp_linalg.solve(A_num, -B_num)
             # param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
-            param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
+            # param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
+            with np.errstate(all="raise"):
+                param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
         elif lin_solver == "casadi":
-            # param_sens = solve(A_num, -B_num)
-            linsol = Linsol("name","qr",A_num.sparsity())
-            # linsol = Linsol("name","csparsecholesky",A_num.sparsity())
-            param_sens = linsol.solve(A_num,-B_num)
+            param_sens = solve(A_num, -B_num)
+            # linsol = Linsol("name","qr",A_num.sparsity())
+            # param_sens = linsol.solve(A_num,-B_num)
         elif lin_solver == "lstsq":
             param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
         else:
