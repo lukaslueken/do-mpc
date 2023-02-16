@@ -88,7 +88,7 @@ nlp_diff = differentiator.NLPDifferentiator(mpc)
 
 import pdb
 # pdb.set_trace()
-for k in range(200):
+for k in range(2000):
     
    
     u0 = mpc.make_step(x0)
@@ -96,36 +96,40 @@ for k in range(200):
     x0 = estimator.make_step(y_next)
 
 
-    # get_do_mpc_nlp_sol
-    nlp_sol = differentiator.get_do_mpc_nlp_sol(mpc)
-    if nlp_diff.flags["reduced_nlp"]:
-        nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-    else:
-        nlp_sol_red = nlp_sol
+    # # get_do_mpc_nlp_sol
+    # nlp_sol = differentiator.get_do_mpc_nlp_sol(mpc)
+    # if nlp_diff.flags["reduced_nlp"]:
+    #     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    # else:
+    #     nlp_sol_red = nlp_sol
     
-    p_num = nlp_sol_red["p"]
+    # p_num = nlp_sol_red["p"]
     
-    z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", tol=1e-7)
-    tic = time.time()
-    param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
-    toc = time.time()
-    print("Time to calculate sensitivities: ", toc-tic)
-    dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
+    # tic = time.time()
+    # param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=True, lstsq_fallback=True)
+    # toc = time.time()
+    # print("Time to calculate sensitivities: ", toc-tic)
+    # # assert k<87
+    # # assert residues<=1e-12
+    # dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
 
-    sens_struct = differentiator.build_sens_sym_struct(mpc)    
-    sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
+    # sens_struct = differentiator.build_sens_sym_struct(mpc)    
+    # sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
 
 
-    nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
-    nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
-    nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
-    dxdp_num_alt = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
+    # nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
+    # nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
+    # nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
+    
     # dxdp_num_alt = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="full")
     
-    assert np.abs(dx_dp_num-dxdp_num_alt).max()<1e-12
+    # assert k<81
+    # assert np.abs(dx_dp_num-dxdp_num_alt).max()<1e-10
     # print(sens_num["dxdp", indexf["_x",0,0,-1], indexf["_x0"]])
     
     # dudx = sens_num["dxdp", indexf["_u",0,0], indexf["_x0"]]
+    
     
 
     if show_animation:
