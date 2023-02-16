@@ -126,6 +126,27 @@ def reconstruct_nlp(nlp_standard_full_dict):
     
     return nlp_standard_full
 
+def cauchy_schwarz_ineq(matrix):
+    print( np.linalg.det(matrix))
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[0]):
+            if i != j:
+                inner_product = np.inner(
+                    matrix[:,i],
+                    matrix[:,j]
+                )
+                norm_i = np.linalg.norm(matrix[:,i])
+                norm_j = np.linalg.norm(matrix[:,j])
+
+                print('I: ', matrix[:,i])
+                print('J: ', matrix[:,j])
+                print('Prod: ', inner_product)
+                print('Norm i: ', norm_i)
+                print('Norm j: ', norm_j)
+                if np.abs(inner_product - norm_j * norm_i) < 1E-5:
+                    print('Dependent')
+                else:
+                    print('Independent')
 
 ### Helper Functions NLP Differentiator
 def build_sens_sym_struct(mpc):
@@ -355,12 +376,32 @@ class NLPDifferentiator:
 
         return nlp_sol_red
 
-    def extract_active_primal_dual_solution(self, nlp_sol, method_active_set="dual", tol=1e-6):
+    def _get_active_constraints_primal(self,nlp_sol, tol):
+        x_num = nlp_sol["x"]
+        g_num = nlp_sol["g"]
+        lbg = self.nlp_bounds["lbg"]
+        ubg = self.nlp_bounds["ubg"]
+        lbx = self.nlp_bounds["lbx"]
+        ubx = self.nlp_bounds["ubx"]
+
+        g_delta_lbg = g_num.full() - lbg
+        g_delta_ubg = g_num.full() - ubg
+        x_delta_lbx = x_num.full() - lbx
+        x_delta_ubx = x_num.full() - ubx
+
+        where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
+        where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
+        where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
+        where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
+
+        return where_g_inactive, where_x_inactive, where_g_active, where_x_active
+    
+    def extract_active_primal_dual_solution(self, nlp_sol, method_active_set="primal-dual", primal_tol=1e-6,dual_tol=1e-8):
         """
         This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
         Args:
             nlp_sol: dict containing the NLP solution.
-            method_active_set: str, either "primal" or "dual". Determines the active set by the primal or dual solution.
+            method_active_set: str, either "primal", "dual" or "primal-dual". Determines the active set by the primal or dual solution.
 
         Returns:
             z_num: numpy array containing the active primal and dual solution.
@@ -383,6 +424,7 @@ class NLPDifferentiator:
 
         ## determine active set
         if method_active_set == "primal":
+            # where_g_inactive, where_x_inactive, where_g_active, where_x_active = self._get_active_constraints_primal(nlp_sol,tol)
             g_num = nlp_sol["g"]
             lbg = self.nlp_bounds["lbg"]
             ubg = self.nlp_bounds["ubg"]
@@ -394,18 +436,62 @@ class NLPDifferentiator:
             x_delta_lbx = x_num.full() - lbx
             x_delta_ubx = x_num.full() - ubx
 
-            where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
-            where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
-            where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
-            where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
+            where_g_inactive = np.where((np.abs(g_delta_lbg)>primal_tol) & (np.abs(g_delta_ubg)>primal_tol))[0]
+            where_x_inactive = np.where((np.abs(x_delta_lbx)>primal_tol) & (np.abs(x_delta_ubx)>primal_tol))[0]            
+            where_g_active = np.where((np.abs(g_delta_lbg)<=primal_tol) | (np.abs(g_delta_ubg)<=primal_tol))[0]
+            where_x_active = np.where((np.abs(x_delta_lbx)<=primal_tol) | (np.abs(x_delta_ubx)<=primal_tol))[0]
 
             where_cons_active = np.concatenate((where_g_active,where_x_active+self.n_g))
             where_cons_inactive = np.concatenate((where_g_inactive,where_x_inactive+self.n_g))
         
         elif method_active_set == "dual":
             # remark: works much worse compared to "primal" method, strongly dependent on scaling of constraints
-            where_cons_active = np.where(np.abs(lam_num)>tol)[0]
-            where_cons_inactive = np.where(np.abs(lam_num)<=tol)[0]
+            where_cons_active = np.where(np.abs(lam_num)>dual_tol)[0]
+            where_cons_inactive = np.where(np.abs(lam_num)<=dual_tol)[0]
+
+        elif method_active_set == "primal-dual":
+            g_num = nlp_sol["g"]
+            lbg = self.nlp_bounds["lbg"]
+            ubg = self.nlp_bounds["ubg"]
+            lbx = self.nlp_bounds["lbx"]
+            ubx = self.nlp_bounds["ubx"]
+
+            g_delta_lbg = g_num.full() - lbg
+            g_delta_ubg = g_num.full() - ubg
+            x_delta_lbx = x_num.full() - lbx
+            x_delta_ubx = x_num.full() - ubx
+
+            ### determine active set based on primal solution only (constraints)
+            # constraint = active if g is close to lbg or ubg and if x is close to lbx or ubx
+            # constraint = inactive if g is not close to lbg and ubg and if x is not close to lbx and ubx
+            
+            inactive_cons_g = (np.abs(g_delta_lbg)>primal_tol) & (np.abs(g_delta_ubg)>primal_tol)
+            inactive_cons_x = (np.abs(x_delta_lbx)>primal_tol) & (np.abs(x_delta_ubx)>primal_tol)
+            active_cons_g = (np.abs(g_delta_lbg)<=primal_tol) | (np.abs(g_delta_ubg)<=primal_tol)
+            active_cons_x = (np.abs(x_delta_lbx)<=primal_tol) | (np.abs(x_delta_ubx)<=primal_tol)
+            inactive_cons_primal = np.concatenate((inactive_cons_g,inactive_cons_x))
+            active_cons_primal = np.concatenate((active_cons_g,active_cons_x))
+            assert sum(active_cons_primal)+ sum(inactive_cons_primal) == self.n_g+self.n_x
+
+            ### determine active set based on dual solution only (lagrange multipliers)
+            # constraint = active if lam is not close to zero
+            # constraint = inactive if lam is close to zero
+            
+            inactive_cons_lam = (np.abs(lam_num)<=dual_tol)
+            active_cons_lam = (np.abs(lam_num)>dual_tol)
+            assert sum(active_cons_lam)+ sum(inactive_cons_lam) == self.n_g+self.n_x
+
+
+            ### determine active set based on primal and dual solution
+
+            inactive_cons = inactive_cons_primal | inactive_cons_lam
+            active_cons = active_cons_primal & active_cons_lam
+            assert sum(active_cons)+ sum(inactive_cons) == self.n_g+self.n_x
+
+            ### specify indices of active and inactive constraints
+            where_cons_inactive = np.where(inactive_cons)[0]
+            where_cons_active = np.where(active_cons)[0]
+
         else:
             raise ValueError("Unknown method for determining active set.")
 
