@@ -366,6 +366,11 @@ class NLPDifferentiator:
         self._get_B_matrix()
         self.flags['sym_KKT_system'] = True
 
+    def _prepare_constraint_gradients(self):
+        self.cons_sym = vertcat(self.nlp["g"],self.nlp["x"])
+        self.cons_grad_sym = jacobian(self.cons_sym,self.nlp["x"])
+        self.cons_grad_func = Function("cons_grad", [self.nlp["x"],self.nlp["p"]], [self.cons_grad_sym], ["x_opt", "p_opt"], ["d(g,x)/dx"])
+
     ### ALGORITHM    
     def reduce_nlp_solution_to_determined(self,nlp_sol):
         # assert self.flags["fully_determined_nlp"], "NLP is not fully determined, e.g. some symbolic variables are not part of NLP functions f,g."
@@ -384,6 +389,7 @@ class NLPDifferentiator:
         return nlp_sol_red
 
     def _get_active_constraints_primal(self,nlp_sol, tol):
+        # TODO: not used yet; include in Code and remove active set detection based on dual variables
         x_num = nlp_sol["x"]
         g_num = nlp_sol["g"]
         lbg = self.nlp_bounds["lbg"]
@@ -634,6 +640,7 @@ class NLPDifferentiator:
         dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
         return dlam_dp
 
+    
     ### LEGACY CODE ###
     # def _get_regularized_LDL_factorization(self):
     #     """
