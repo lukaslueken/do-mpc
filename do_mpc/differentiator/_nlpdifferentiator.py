@@ -245,8 +245,8 @@ class NLPDifferentiator:
         # 5. Get symbolic expressions for sensitivity matrices
         self._prepare_sensitivity_matrices()
 
-        # 6. Get LDLT factorization
-        # self._get_regularized_LDL_factorization()
+        # 6. Prepare gradient d(g,x)/dx
+        self._prepare_constraint_gradients()
         
     def _get_do_mpc_nlp(self,mpc_object):
         """
@@ -519,7 +519,7 @@ class NLPDifferentiator:
 
         return z_num, where_cons_active
 
-    def calculate_sensitivities(self, z_num, p_num, where_cons_active, lin_solver="scipy", check_rank=False, track_residues=False, lstsq_fallback=True):
+    def calculate_sensitivities(self, z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=False, check_rank=False, track_residues=False, lstsq_fallback=True):
         """
         Calculates the sensitivities of the NLP solution.
         Args:
@@ -528,6 +528,8 @@ class NLPDifferentiator:
             tol: float, tolerance for determining the active set.
         Returns:
         """
+        if check_LICQ:
+            self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
         
         A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
         A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_cons_active)
@@ -640,8 +642,19 @@ class NLPDifferentiator:
         dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
         return dlam_dp
 
-    
-    
+    def _check_LICQ(self, x_num, p_num, where_cons_active):        
+        # get constraint Jacobian
+        cons_grad_num = self.cons_grad_func(x_num, p_num)
+        # reduce constraint Jacobian
+        cons_grad_num = cons_grad_num[where_cons_active,:]
+        # check rank
+        if np.linalg.matrix_rank(cons_grad_num) < cons_grad_num.shape[0]:
+            # raise KeyError("Constraint Jacobian does not have full rank at current solution. LICQ not satisfied.")
+            print("Constraint Jacobian does not have full rank at current solution. LICQ not satisfied.")
+            # return False
+        else:
+            print("LICQ satisfied.")
+            # return True
 
 
 
