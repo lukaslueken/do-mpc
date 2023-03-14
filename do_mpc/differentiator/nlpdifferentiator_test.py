@@ -9,9 +9,13 @@ nlp_dict = {"nlp": nlp, "nlp_bounds": nlp_bounds}
 # instantiate NLPDifferentiator
 nlp_diff = NLPDifferentiator(nlp_dict)
 
+nlp_diff.settings.check_LICQ = True
+
+print(nlp_diff.settings)
+
 # specify solver
 def specify_solver(nlp):
-    nlp_sol_opts = {}
+    nlp_1jsol_opts = {}
     ipopt_options = {"fixed_variable_treatment": "make_constraint"}
     nlp_sol_opts["expand"] = False
     ipopt_options["print_level"] = 4

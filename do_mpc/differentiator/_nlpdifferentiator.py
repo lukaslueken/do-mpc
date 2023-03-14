@@ -2,6 +2,10 @@ import numpy as np
 import scipy.linalg as sp_linalg
 from casadi import *
 from casadi.tools import *
+from dataclasses import dataclass
+from typing import List, Dict, Tuple, Union, Optional, Any
+
+from do_mpc.optimizer import Optimizer
 
 from functools import wraps
 import time
@@ -193,6 +197,41 @@ def get_do_mpc_nlp_sol(mpc):
     nlp_sol["p"] = vertcat(mpc.opt_p_num)
     return nlp_sol
 
+@dataclass
+class NLPDifferentiatorSettings:
+    """Settings for NLPDifferentiator.
+    """
+
+    lin_solver: str = 'scipy'
+    """
+    Choose the linear solver for the KKT system.
+    """
+
+    check_LICQ: bool = True
+    """
+    Check if the KKT system is linearly independent.    
+    """
+
+    track_residuals: bool = False
+    """
+    Compute the residuals of the KKT system.
+    """
+
+    check_rank: bool = False
+    """
+    ....
+    """
+
+    lstsq_fallback: bool = False
+    """
+    ...
+    """
+
+    active_set_tol : float = 1e-6
+    """
+    ...
+    """
+
 ### NLP Differentiator
 class NLPDifferentiator:
     """
@@ -203,7 +242,16 @@ class NLPDifferentiator:
         This tool is currently not fully implemented and cannot be used.
     """
 
-    def __init__(self, nlp_container):
+    def from_optimizer(optimizer: Optimizer):
+        """Create NLPDifferentiator instance from do_mpc optimizer.
+        """
+
+        nlp_container = NLPDifferentiator._get_do_mpc_nlp(optimizer)
+        
+        return NLPDifferentiator(nlp_container)
+
+
+    def __init__(self, nlp_container, **kwargs):
         
         ## Setup
         self._setup_nlp(nlp_container)
@@ -211,6 +259,8 @@ class NLPDifferentiator:
         self.flags = {}
         self.flags['sym_KKT_system'] = False
         self.flags['reduced_nlp'] = False
+
+        self.settings = NLPDifferentiatorSettings(**kwargs)
 
         ## Preparation
         self._prepare_differentiator()
@@ -220,11 +270,8 @@ class NLPDifferentiator:
         #TODO: check whether mpc using scaling
         if type(nlp_container)==dict:
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
-        elif hasattr(nlp_container,"opt_x"):
-            nlp, nlp_bounds = self._get_do_mpc_nlp(nlp_container)
-            self.nlp, self.nlp_bounds = nlp.copy(), nlp_bounds.copy()
         else:
-            raise ValueError('nlp_container must be a tuple or a do_mpc object.')
+            raise ValueError('nlp_container must be a dictionary with keys "nlp" and "nlp_bounds".')
 
     ### PREPARATION
     def _prepare_differentiator(self):
@@ -248,7 +295,8 @@ class NLPDifferentiator:
         # 6. Prepare gradient d(g,x)/dx
         self._prepare_constraint_gradients()
         
-    def _get_do_mpc_nlp(self,mpc_object):
+    @staticmethod
+    def _get_do_mpc_nlp(mpc_object):
         """
         This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
         It is used to initialize the NLPDifferentiator class.
@@ -264,7 +312,8 @@ class NLPDifferentiator:
         nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
         nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
 
-        return nlp, nlp_bounds
+        # return nlp, nlp_bounds
+        return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
     
     def _detect_undetermined_sym_var(self, var="x"):
         
@@ -519,7 +568,7 @@ class NLPDifferentiator:
 
         return z_num, where_cons_active
 
-    def calculate_sensitivities(self, z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=False, check_rank=False, track_residues=False, lstsq_fallback=True):
+    def calculate_sensitivities(self, z_num, p_num, where_cons_active, check_rank=False, track_residues=False, lstsq_fallback=True):
         """
         Calculates the sensitivities of the NLP solution.
         Args:
@@ -532,7 +581,7 @@ class NLPDifferentiator:
         LICQ_status = None
         residues = None
 
-        if check_LICQ:
+        if self.settings.check_LICQ:
             LICQ_status = self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
         
         A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
@@ -546,7 +595,7 @@ class NLPDifferentiator:
 
         # solve LSE to get parametric sensitivities
         try:
-            param_sens = self._solve_linear_system(A_num,B_num, lin_solver=lin_solver)
+            param_sens = self._solve_linear_system(A_num,B_num, lin_solver=self.settings.lin_solver)
         # except np.linalg.LinAlgError:
         except:
             if lstsq_fallback:
