@@ -528,8 +528,12 @@ class NLPDifferentiator:
             tol: float, tolerance for determining the active set.
         Returns:
         """
+        # returns
+        LICQ_status = None
+        residues = None
+
         if check_LICQ:
-            self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
+            LICQ_status = self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
         
         A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
         A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_cons_active)
@@ -553,10 +557,8 @@ class NLPDifferentiator:
                         
         if track_residues:
             residues = self._track_residues(A_num, B_num, param_sens)
-            # assert residues<=1e-12
-            return param_sens, residues
-        else:
-            return param_sens, None
+            
+        return param_sens, residues, LICQ_status
     
     def map_param_sens(self, param_sens, where_cons_active):
         """
@@ -651,11 +653,10 @@ class NLPDifferentiator:
         if np.linalg.matrix_rank(cons_grad_num) < cons_grad_num.shape[0]:
             # raise KeyError("Constraint Jacobian does not have full rank at current solution. LICQ not satisfied.")
             print("Constraint Jacobian does not have full rank at current solution. LICQ not satisfied.")
-            # return False
+            return False
         else:
             print("LICQ satisfied.")
-            # return True
-
-
+            return True
+    
 
   
