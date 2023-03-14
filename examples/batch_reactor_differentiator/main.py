@@ -83,12 +83,17 @@ plt.ion()
 Run MPC main loop:
 """
 
+# run stats
+LICQ_status_list = []
+residues_list = []
+param_sens_list = []
+
 
 nlp_diff = differentiator.NLPDifferentiator(mpc)
 
 import pdb
 # pdb.set_trace()
-for k in range(400):
+for k in range(200):
     
    
     u0 = mpc.make_step(x0)
@@ -96,24 +101,28 @@ for k in range(400):
     x0 = estimator.make_step(y_next)
 
 
-    # # get_do_mpc_nlp_sol
-    # nlp_sol = differentiator.get_do_mpc_nlp_sol(mpc)
-    # if nlp_diff.flags["reduced_nlp"]:
-    #     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-    # else:
-    #     nlp_sol_red = nlp_sol
+    # get_do_mpc_nlp_sol
+    nlp_sol = differentiator.get_do_mpc_nlp_sol(mpc)
+    if nlp_diff.flags["reduced_nlp"]:
+        nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    else:
+        nlp_sol_red = nlp_sol
     
-    # p_num = nlp_sol_red["p"]
+    p_num = nlp_sol_red["p"]
     
-    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
-    # tic = time.time()
-    # print("iteration: ", k)
-    # param_sens, residues = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=True, check_rank=False, track_residues=True, lstsq_fallback=True)
-    # toc = time.time()
-    # print("Time to calculate sensitivities: ", toc-tic)
-    # # assert k<87
-    # # assert residues<=1e-12
-    # dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+    z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
+    tic = time.time()
+    print("iteration: ", k)
+    param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=True, check_rank=False, track_residues=True, lstsq_fallback=True)
+    toc = time.time()
+    print("Time to calculate sensitivities: ", toc-tic)
+    # assert k<87
+    # assert residues<=1e-12
+    dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+
+    LICQ_status_list.append(LICQ_status)
+    residues_list.append(residues)
+    param_sens_list.append(param_sens)
 
     # sens_struct = differentiator.build_sens_sym_struct(mpc)    
     # sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
