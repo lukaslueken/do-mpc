@@ -89,7 +89,8 @@ residues_list = []
 param_sens_list = []
 
 
-nlp_diff = differentiator.NLPDifferentiator(mpc)
+nlp_diff = differentiator.NLPDifferentiator.from_optimizer(mpc)
+# nlp_diff = differentiator.NLPDifferentiator(mpc)
 
 import pdb
 # pdb.set_trace()
