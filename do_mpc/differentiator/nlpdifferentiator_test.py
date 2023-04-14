@@ -15,7 +15,7 @@ print(nlp_diff.settings)
 
 # specify solver
 def specify_solver(nlp):
-    nlp_1jsol_opts = {}
+    nlp_sol_opts = {}
     ipopt_options = {"fixed_variable_treatment": "make_constraint"}
     nlp_sol_opts["expand"] = False
     ipopt_options["print_level"] = 4
@@ -28,7 +28,7 @@ def specify_solver(nlp):
 nlp_solver = specify_solver(nlp)
 
 # solve NLP
-p_num = np.array((1,1))
+p_num = np.array((0,1))
 nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
 
 # get_do_mpc_nlp_sol
@@ -37,7 +37,7 @@ if nlp_diff.flags["reduced_nlp"]:
 else:
     nlp_sol_red = nlp_sol
 z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal")
-param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=False, check_rank=False, track_residues=True, lstsq_fallback=True)
+param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
 dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
 
 if True:
