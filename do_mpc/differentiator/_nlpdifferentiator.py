@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings("error",category=sp_linalg.LinAlgWarning)
 
 ### Helper Functions NLP Differentiator
-def build_sens_sym_struct(mpc):
+def build_sens_sym_struct(mpc: Optimizer):
     opt_x = mpc._opt_x
     opt_p = mpc._opt_p
     
