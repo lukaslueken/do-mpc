@@ -111,7 +111,8 @@ for k in range(10):
     
     p_num = nlp_sol_red["p"]
     
-    z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
+    z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=False)
+    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
     tic = time.time()
     print("iteration: ", k)
     param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
