@@ -291,7 +291,7 @@ class NLPDifferentiator:
 
         return nlp_sol_red
 
-    def _get_active_constraints_primal(self,nlp_sol, tol):
+    def _get_active_constraints_primal(self,nlp_sol, tol): #TODO: remove
         # TODO: not used yet; include in Code and remove active set detection based on dual variables
         x_num = nlp_sol["x"]
         g_num = nlp_sol["g"]
@@ -312,7 +312,93 @@ class NLPDifferentiator:
 
         return where_g_inactive, where_x_inactive, where_g_active, where_x_active
     
-    def extract_active_primal_dual_solution(self, nlp_sol, method_active_set="primal-dual", primal_tol=1e-6,dual_tol=1e-8):
+    def _get_active_constraints(self,nlp_sol,tol=1e-6):
+        """
+        This function determines the active set of the current NLP solution. The active set is determined by the "primal" solution, considering the bounds on the variables and constraints.
+        The active set is returned as a list of numpy arrays containing the indices of the active and inactive nonlinear and linear constraints.
+
+        Args:
+            nlp_sol: dict containing the NLP solution.
+            tol: tolerance for the active set detection. Default: 1e-6. (Should be related to optimizer tolerance.)
+
+        Returns:
+            where_g_inactive: numpy array containing the indices of the inactive nonlinear constraints.
+            where_x_inactive: numpy array containing the indices of the inactive linear constraints.
+            where_g_active: numpy array containing the indices of the active nonlinear constraints.
+            where_x_active: numpy array containing the indices of the active linear constraints.
+
+        Raises:
+            KeyError: If the NLP solution does not contain the primal or dual solution.
+        """
+
+        if "x" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain primal solution.")
+        if "lam_g" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain dual solution to nonlinear constraints.")
+        if "lam_x" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain dual solution to linear constraints.")
+        if "g" not in nlp_sol.keys():
+            raise KeyError("NLP solution does not contain nonlinear constraints.")        
+        
+        x_num = nlp_sol["x"]
+        g_num = nlp_sol["g"]
+        
+        # determine active set
+        ## bounds of nonlinear and linear constraints
+        lbg = self.nlp_bounds["lbg"]
+        ubg = self.nlp_bounds["ubg"]
+        lbx = self.nlp_bounds["lbx"]
+        ubx = self.nlp_bounds["ubx"]
+
+        ## determine distance to bounds
+        g_delta_lbg = g_num.full() - lbg
+        g_delta_ubg = g_num.full() - ubg
+        x_delta_lbx = x_num.full() - lbx
+        x_delta_ubx = x_num.full() - ubx
+
+        ## determine active set based on distance to bounds with tolerance tol
+        where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
+        where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
+        where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
+        where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
+        
+        return where_g_inactive, where_x_inactive, where_g_active, where_x_active 
+    
+    
+    def _extract_active_primal_dual_solution(self, nlp_sol,tol=1e-6,set_lam_zero=True): #TODO: finish, documente
+        """
+        This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
+        Lagrange multipliers of inactive constraints can be set to zero with the argument set_lam_zero.
+        
+        Args:
+            nlp_sol: dict containing the NLP solution.
+            tol: tolerance for the active set detection. Default: 1e-6. (Should be related to optimizer tolerance.)
+            set_lam_zero: bool, if True, the dual solution is set to zero for inactive constraints. Default: False.
+
+        Returns:
+            z_num: casadi DM containing the active primal and dual solution.
+            where_cons_active: numpy array containing the indices of the active constraints.
+        """
+
+        x_num = nlp_sol["x"]
+        lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
+
+        where_g_inactive, where_x_inactive, where_g_active, where_x_active = self._get_active_constraints(nlp_sol,tol=tol)
+        
+        where_cons_active = np.concatenate((where_g_active,where_x_active+self.n_g))
+        where_cons_inactive = np.concatenate((where_g_inactive,where_x_inactive+self.n_g))
+
+        # set lagrange multipliers of inactive constraints to zero
+        lam_num[where_cons_inactive] = 0
+        # lam_num[np.where(inactive_cons_primal)[0]] = 0
+        
+        # stack primal and dual solution
+        z_num = vertcat(x_num,lam_num)
+
+        return z_num, where_cons_active        
+
+
+    def extract_active_primal_dual_solution(self, nlp_sol, method_active_set="primal-dual", primal_tol=1e-6,dual_tol=1e-8): #TODO: remove
         """
         This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
         Args:
