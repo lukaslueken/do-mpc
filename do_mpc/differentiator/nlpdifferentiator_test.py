@@ -126,7 +126,8 @@ if nlp_diff.flags["reduced_nlp"]:
     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
 else:
     nlp_sol_red = nlp_sol
-z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal")
+# z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal")
+z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=True)
 param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
 dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
 
