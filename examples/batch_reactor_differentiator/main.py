@@ -92,9 +92,9 @@ param_sens_list = []
 nlp_diff = differentiator.NLPDifferentiator.from_optimizer(mpc)
 # nlp_diff = differentiator.NLPDifferentiator(mpc)
 
-import pdb
+# import pdb
 # pdb.set_trace()
-for k in range(200):
+for k in range(10):
     
    
     u0 = mpc.make_step(x0)
@@ -114,7 +114,7 @@ for k in range(200):
     z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
     tic = time.time()
     print("iteration: ", k)
-    param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, lin_solver="scipy", check_LICQ=True, check_rank=False, track_residues=True, lstsq_fallback=True)
+    param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
     toc = time.time()
     print("Time to calculate sensitivities: ", toc-tic)
     # assert k<87
