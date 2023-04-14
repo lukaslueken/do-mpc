@@ -41,15 +41,6 @@ def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
 
     return sens_num
 
-def get_do_mpc_nlp_sol(mpc):
-    nlp_sol = {}
-    nlp_sol["x"] = vertcat(mpc.opt_x_num)
-    nlp_sol["x_unscaled"] = vertcat(mpc.opt_x_num_unscaled)
-    nlp_sol["g"] = vertcat(mpc.opt_g_num)
-    nlp_sol["lam_g"] = vertcat(mpc.lam_g_num)
-    nlp_sol["lam_x"] = vertcat(mpc.lam_x_num)
-    nlp_sol["p"] = vertcat(mpc.opt_p_num)
-    return nlp_sol
 
 @dataclass
 class NLPDifferentiatorSettings:
@@ -103,7 +94,6 @@ class NLPDifferentiator:
         nlp_container = NLPDifferentiator._get_do_mpc_nlp(optimizer)
         
         return NLPDifferentiator(nlp_container)
-
 
     def __init__(self, nlp_container, **kwargs):
         
@@ -168,6 +158,17 @@ class NLPDifferentiator:
 
         # return nlp, nlp_bounds
         return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
+    
+    @staticmethod
+    def _get_do_mpc_nlp_sol(mpc_object):
+        nlp_sol = {}
+        nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
+        nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
+        nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
+        nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
+        nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
+        nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
+        return nlp_sol
     
     def _detect_undetermined_sym_var(self, var="x"):
         
@@ -364,7 +365,6 @@ class NLPDifferentiator:
         
         return where_g_inactive, where_x_inactive, where_g_active, where_x_active 
     
-    
     def _extract_active_primal_dual_solution(self, nlp_sol,tol=1e-6,set_lam_zero=True): #TODO: finish, documente
         """
         This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
@@ -396,7 +396,6 @@ class NLPDifferentiator:
         z_num = vertcat(x_num,lam_num)
 
         return z_num, where_cons_active        
-
 
     def calculate_sensitivities(self, z_num, p_num, where_cons_active, check_rank=False, track_residues=False, lstsq_fallback=True):
         """

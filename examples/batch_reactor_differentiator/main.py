@@ -103,7 +103,7 @@ for k in range(10):
 
 
     # get_do_mpc_nlp_sol
-    nlp_sol = differentiator.get_do_mpc_nlp_sol(mpc)
+    nlp_sol = nlp_diff._get_do_mpc_nlp_sol(mpc)
     if nlp_diff.flags["reduced_nlp"]:
         nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
     else:
