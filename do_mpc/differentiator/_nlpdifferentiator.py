@@ -207,6 +207,10 @@ class NLPDifferentiator:
         self.n_g = self.nlp["g"].shape[0]
         self.n_p = self.nlp["p"].shape[0]
 
+        if self.flags["reduced_nlp"]:
+            self.n_x_unreduced = self.nlp_unreduced["x"].shape[0]
+            self.n_p_unreduced = self.nlp_unreduced["p"].shape[0]
+
     def _get_sym_lagrange_multipliers(self):
         self.nlp["lam_g"] = SX.sym("lam_g",self.n_g,1)
         self.nlp["lam_x"] = SX.sym("lam_x",self.n_x,1)
@@ -230,6 +234,7 @@ class NLPDifferentiator:
         self.A_func = Function("A", [self.nlp["z"],self.nlp["p"]], [self.A_sym], ["z_opt", "p_opt"], ["A"])
 
     def _get_B_matrix(self):
+        # TODO: Note, full parameter vector considered for differentiation. This is not necessary, if only a subset of the parametric sensitivities is required. Future version will considere reduces parameter space.
         self.B_sym = jacobian(gradient(self.L_sym,self.nlp["z"]),self.nlp["p"])
         self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
 
@@ -384,7 +389,7 @@ class NLPDifferentiator:
             raise ValueError("Unknown linear solver.")
         return param_sens
     
-    def calculate_sensitivities(self, z_num, p_num, where_cons_active):
+    def _calculate_sensitivities(self, z_num, p_num, where_cons_active):
         """
         Calculates the sensitivities of the NLP solution.
         Args:
@@ -395,7 +400,7 @@ class NLPDifferentiator:
         """
         # returns
         LICQ_status = None
-        residues = None
+        residuals = None
 
         if self.settings.check_LICQ:
             LICQ_status = self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
@@ -421,9 +426,9 @@ class NLPDifferentiator:
                 raise np.linalg.LinAlgError("Solving LSE failed.")
                         
         if self.settings.track_residuals:
-            residues = self._track_residuals(A_num, B_num, param_sens)
+            residuals = self._track_residuals(A_num, B_num, param_sens)
             
-        return param_sens, residues, LICQ_status
+        return param_sens, residuals, LICQ_status
     
     ### Mapping functions ###
     def _map_dxdp(self,param_sens):
@@ -442,7 +447,7 @@ class NLPDifferentiator:
         dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
         return dlam_dp
     
-    def map_param_sens(self, param_sens, where_cons_active):
+    def _map_param_sens(self, param_sens, where_cons_active):
         """
         Maps the parametric sensitivities to the original decision variables and lagrange multipliers.
         """
@@ -460,11 +465,11 @@ class NLPDifferentiator:
     
     def _track_residuals(self, A_num, B_num, param_sens):
         """
-        Tracks the residues of the linear system of equations.
+        Tracks the residuals of the linear system of equations.
         """
-        # residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
-        residues = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
-        return residues
+        # residuals = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
+        residuals = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
+        return residuals
 
     def _check_LICQ(self, x_num, p_num, where_cons_active):        
         # get constraint Jacobian
@@ -480,6 +485,55 @@ class NLPDifferentiator:
             print("LICQ satisfied.")
             return True
     
+    ### differentiaton step ###
+
+    # the next function applies the whole algorithm given in the code abouve and returns the sensitivities dx_dp
+    def differentiate(self, nlp_sol):
+        """
+        Differentiates the NLP solution.
+        """
+
+
+        # reduce NLP solution if necessary
+        if self.flags['reduced_nlp']:
+            nlp_sol = self._reduce_nlp_solution_to_determined(nlp_sol)
+
+        # get parameters of optimal solution
+        p_num = nlp_sol["p"]
+        
+        # extract active primal and dual solution
+        z_num, where_cons_active = self._extract_active_primal_dual_solution(nlp_sol)
+
+        # calculate parametric sensitivities
+        param_sens, residuals, LICQ_status = self._calculate_sensitivities(z_num, p_num, where_cons_active)
+
+        # map sensitivities to original decision variables and lagrange multipliers
+        dx_dp_num_red, dlam_dp_num_red = self._map_param_sens(param_sens, where_cons_active)
+        if self.flags['reduced_nlp']:
+            dx_dp_num, dlam_dp_num = self._map_param_sens_to_full(dx_dp_num_red,dlam_dp_num_red)
+        else:
+            dx_dp_num = dx_dp_num_red
+
+        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active
+
+
+    def _map_param_sens_to_full(self, dx_dp_num_red,dlam_dp_num_red):
+        """
+        Maps the reduced parametric sensitivities to the full decision variables.
+        """
+        idx_x_determined, idx_p_determined = self.det_sym_idx_dict["opt_x"], self.det_sym_idx_dict["opt_p"]
+
+        dx_dp_num = np.zeros((self.n_x_unreduced,self.n_p_unreduced))
+        dx_dp_num[idx_x_determined[:,None],idx_p_determined] = dx_dp_num_red
+        
+        dlam_dp_num = np.zeros((self.n_g+self.n_x_unreduced,self.n_p_unreduced))
+
+        idx_lam_determined = np.hstack([np.arange(0,self.n_g,dtype=np.int64),idx_x_determined+self.n_g])
+
+        dlam_dp_num[idx_lam_determined[:,None],idx_p_determined] = dlam_dp_num_red
+
+        return dx_dp_num, dlam_dp_num
+
 
   
 class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
