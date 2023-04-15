@@ -77,6 +77,52 @@ class NLPDifferentiatorSettings:
     ...
     """
 
+class DoMPCDifferentiatior(NLPDifferentiator):
+    def __init__(self, optimizer: Optimizer, **kwargs):
+        nlp_container = self._get_do_mpc_nlp(optimizer)
+        
+        self.optimizer = optimizer
+        super().__init__(nlp_container,**kwargs)
+
+    @staticmethod
+    def _get_do_mpc_nlp(mpc_object):
+        """
+        This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
+        It is used to initialize the NLPDifferentiator class.
+        """
+
+        # 1 get symbolic expressions of NLP
+        nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
+
+        # 2 extract bounds
+        nlp_bounds = {}
+        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
+        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
+        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
+        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
+
+        # return nlp, nlp_bounds
+        return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
+
+    def calculate_sensitivities(self):
+        # TODO: Complete
+        # z_num = self.opimizer.opt_x_num[...]
+
+        # super().calculate_sensitivities(...)
+
+    @staticmethod
+    def _get_do_mpc_nlp_sol(mpc_object):
+        nlp_sol = {}
+        nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
+        nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
+        nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
+        nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
+        nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
+        nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
+        return nlp_sol
+
+
+
 ### NLP Differentiator
 class NLPDifferentiator:
     """
@@ -86,14 +132,6 @@ class NLPDifferentiator:
 
         This tool is currently not fully implemented and cannot be used.
     """
-
-    def from_optimizer(optimizer: Optimizer):
-        """Create NLPDifferentiator instance from do_mpc optimizer.
-        """
-
-        nlp_container = NLPDifferentiator._get_do_mpc_nlp(optimizer)
-        
-        return NLPDifferentiator(nlp_container)
 
     def __init__(self, nlp_container, **kwargs):
         
@@ -139,36 +177,6 @@ class NLPDifferentiator:
         # 6. Prepare gradient d(g,x)/dx
         self._prepare_constraint_gradients()
         
-    @staticmethod
-    def _get_do_mpc_nlp(mpc_object):
-        """
-        This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
-        It is used to initialize the NLPDifferentiator class.
-        """
-
-        # 1 get symbolic expressions of NLP
-        nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
-
-        # 2 extract bounds
-        nlp_bounds = {}
-        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
-        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
-        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
-        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
-
-        # return nlp, nlp_bounds
-        return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
-    
-    @staticmethod
-    def _get_do_mpc_nlp_sol(mpc_object):
-        nlp_sol = {}
-        nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
-        nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
-        nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
-        nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
-        nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
-        nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
-        return nlp_sol
     
     def _detect_undetermined_sym_var(self, var="x"):
         
@@ -292,26 +300,26 @@ class NLPDifferentiator:
 
         return nlp_sol_red
 
-    def _get_active_constraints_primal(self,nlp_sol, tol): #TODO: remove
-        # TODO: not used yet; include in Code and remove active set detection based on dual variables
-        x_num = nlp_sol["x"]
-        g_num = nlp_sol["g"]
-        lbg = self.nlp_bounds["lbg"]
-        ubg = self.nlp_bounds["ubg"]
-        lbx = self.nlp_bounds["lbx"]
-        ubx = self.nlp_bounds["ubx"]
+    # def _get_active_constraints_primal(self,nlp_sol, tol): #TODO: remove
+    #     # TODO: not used yet; include in Code and remove active set detection based on dual variables
+    #     x_num = nlp_sol["x"]
+    #     g_num = nlp_sol["g"]
+    #     lbg = self.nlp_bounds["lbg"]
+    #     ubg = self.nlp_bounds["ubg"]
+    #     lbx = self.nlp_bounds["lbx"]
+    #     ubx = self.nlp_bounds["ubx"]
 
-        g_delta_lbg = g_num.full() - lbg
-        g_delta_ubg = g_num.full() - ubg
-        x_delta_lbx = x_num.full() - lbx
-        x_delta_ubx = x_num.full() - ubx
+    #     g_delta_lbg = g_num.full() - lbg
+    #     g_delta_ubg = g_num.full() - ubg
+    #     x_delta_lbx = x_num.full() - lbx
+    #     x_delta_ubx = x_num.full() - ubx
 
-        where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
-        where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
-        where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
-        where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
+    #     where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
+    #     where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
+    #     where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
+    #     where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
 
-        return where_g_inactive, where_x_inactive, where_g_active, where_x_active
+    #     return where_g_inactive, where_x_inactive, where_g_active, where_x_active
     
     def _get_active_constraints(self,nlp_sol,tol=1e-6):
         """
