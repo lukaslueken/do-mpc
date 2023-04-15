@@ -57,12 +57,12 @@ class NLPDifferentiatorSettings:
     Check if the KKT system is linearly independent.    
     """
 
-    track_residuals: bool = False
+    track_residuals: bool = True
     """
     Compute the residuals of the KKT system.
     """
 
-    check_rank: bool = False
+    check_rank: bool = True
     """
     ....
     """
@@ -77,49 +77,10 @@ class NLPDifferentiatorSettings:
     ...
     """
 
-class DoMPCDifferentiatior(NLPDifferentiator):
-    def __init__(self, optimizer: Optimizer, **kwargs):
-        nlp_container = self._get_do_mpc_nlp(optimizer)
-        
-        self.optimizer = optimizer
-        super().__init__(nlp_container,**kwargs)
-
-    @staticmethod
-    def _get_do_mpc_nlp(mpc_object):
-        """
-        This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
-        It is used to initialize the NLPDifferentiator class.
-        """
-
-        # 1 get symbolic expressions of NLP
-        nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
-
-        # 2 extract bounds
-        nlp_bounds = {}
-        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
-        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
-        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
-        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
-
-        # return nlp, nlp_bounds
-        return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
-
-    def calculate_sensitivities(self):
-        # TODO: Complete
-        # z_num = self.opimizer.opt_x_num[...]
-
-        # super().calculate_sensitivities(...)
-
-    @staticmethod
-    def _get_do_mpc_nlp_sol(mpc_object):
-        nlp_sol = {}
-        nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
-        nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
-        nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
-        nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
-        nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
-        nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
-        return nlp_sol
+    set_lam_zero: bool = True
+    """
+    ...
+    """
 
 
 
@@ -150,7 +111,7 @@ class NLPDifferentiator:
     ### SETUP
     def _setup_nlp(self,nlp_container):
         #TODO: check whether mpc using scaling
-        if type(nlp_container)==dict:
+        if isinstance(nlp_container, dict):
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
         else:
             raise ValueError('nlp_container must be a dictionary with keys "nlp" and "nlp_bounds".')
@@ -177,7 +138,6 @@ class NLPDifferentiator:
         # 6. Prepare gradient d(g,x)/dx
         self._prepare_constraint_gradients()
         
-    
     def _detect_undetermined_sym_var(self, var="x"):
         
         # symbolic expressions
@@ -321,7 +281,7 @@ class NLPDifferentiator:
 
     #     return where_g_inactive, where_x_inactive, where_g_active, where_x_active
     
-    def _get_active_constraints(self,nlp_sol,tol=1e-6):
+    def _get_active_constraints(self,nlp_sol):
         """
         This function determines the active set of the current NLP solution. The active set is determined by the "primal" solution, considering the bounds on the variables and constraints.
         The active set is returned as a list of numpy arrays containing the indices of the active and inactive nonlinear and linear constraints.
@@ -366,14 +326,14 @@ class NLPDifferentiator:
         x_delta_ubx = x_num.full() - ubx
 
         ## determine active set based on distance to bounds with tolerance tol
-        where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
-        where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
-        where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
-        where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
+        where_g_inactive = np.where((np.abs(g_delta_lbg)>self.settings.active_set_tol) & (np.abs(g_delta_ubg)>self.settings.active_set_tol))[0]
+        where_x_inactive = np.where((np.abs(x_delta_lbx)>self.settings.active_set_tol) & (np.abs(x_delta_ubx)>self.settings.active_set_tol))[0]            
+        where_g_active = np.where((np.abs(g_delta_lbg)<=self.settings.active_set_tol) | (np.abs(g_delta_ubg)<=self.settings.active_set_tol))[0]
+        where_x_active = np.where((np.abs(x_delta_lbx)<=self.settings.active_set_tol) | (np.abs(x_delta_ubx)<=self.settings.active_set_tol))[0]
         
         return where_g_inactive, where_x_inactive, where_g_active, where_x_active 
     
-    def _extract_active_primal_dual_solution(self, nlp_sol,tol=1e-6,set_lam_zero=True): #TODO: finish, documente
+    def _extract_active_primal_dual_solution(self, nlp_sol): #TODO: finish, documente
         """
         This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
         Lagrange multipliers of inactive constraints can be set to zero with the argument set_lam_zero.
@@ -391,21 +351,21 @@ class NLPDifferentiator:
         x_num = nlp_sol["x"]
         lam_num = vertcat(nlp_sol["lam_g"],nlp_sol["lam_x"])
 
-        where_g_inactive, where_x_inactive, where_g_active, where_x_active = self._get_active_constraints(nlp_sol,tol=tol)
+        where_g_inactive, where_x_inactive, where_g_active, where_x_active = self._get_active_constraints(nlp_sol)
         
         where_cons_active = np.concatenate((where_g_active,where_x_active+self.n_g))
         where_cons_inactive = np.concatenate((where_g_inactive,where_x_inactive+self.n_g))
 
         # set lagrange multipliers of inactive constraints to zero
-        lam_num[where_cons_inactive] = 0
-        # lam_num[np.where(inactive_cons_primal)[0]] = 0
+        if self.settings.set_lam_zero:
+            lam_num[where_cons_inactive] = 0
         
         # stack primal and dual solution
         z_num = vertcat(x_num,lam_num)
 
         return z_num, where_cons_active        
 
-    def calculate_sensitivities(self, z_num, p_num, where_cons_active, check_rank=False, track_residues=False, lstsq_fallback=True):
+    def calculate_sensitivities(self, z_num, p_num, where_cons_active):
         """
         Calculates the sensitivities of the NLP solution.
         Args:
@@ -427,7 +387,7 @@ class NLPDifferentiator:
         # assert np.all(sp_linalg.eigvals(A_num)>0)
         # assert where_cons_active.shape[0]<= self.n_x
 
-        if check_rank:
+        if self.settings.check_rank:
             self._check_rank(A_num)
 
         # solve LSE to get parametric sensitivities
@@ -435,14 +395,14 @@ class NLPDifferentiator:
             param_sens = self._solve_linear_system(A_num,B_num, lin_solver=self.settings.lin_solver)
         # except np.linalg.LinAlgError:
         except:
-            if lstsq_fallback:
+            if self.settings.lstsq_fallback:
                 print("Solving LSE failed. Falling back to least squares solution.")
                 param_sens = self._solve_linear_system(A_num,B_num, lin_solver="lstsq")
             else:
                 raise np.linalg.LinAlgError("Solving LSE failed.")
                         
-        if track_residues:
-            residues = self._track_residues(A_num, B_num, param_sens)
+        if self.settings.track_residuals:
+            residues = self._track_residuals(A_num, B_num, param_sens)
             
         return param_sens, residues, LICQ_status
     
@@ -506,7 +466,7 @@ class NLPDifferentiator:
             raise ValueError("Unknown linear solver.")
         return param_sens
     
-    def _track_residues(self, A_num, B_num, param_sens):
+    def _track_residuals(self, A_num, B_num, param_sens):
         """
         Tracks the residues of the linear system of equations.
         """
@@ -546,3 +506,47 @@ class NLPDifferentiator:
     
 
   
+class DoMPCDifferentiatior(NLPDifferentiator):
+    pass
+    # def __init__(self, optimizer: Optimizer, **kwargs):
+    #     nlp_container = self._get_do_mpc_nlp(optimizer)
+        
+    #     self.optimizer = optimizer
+    #     super().__init__(nlp_container,**kwargs)
+
+    # @staticmethod
+    # def _get_do_mpc_nlp(mpc_object):
+    #     """
+    #     This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
+    #     It is used to initialize the NLPDifferentiator class.
+    #     """
+
+    #     # 1 get symbolic expressions of NLP
+    #     nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
+
+    #     # 2 extract bounds
+    #     nlp_bounds = {}
+    #     nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
+    #     nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
+    #     nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
+    #     nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
+
+    #     # return nlp, nlp_bounds
+    #     return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
+
+    # def calculate_sensitivities(self):
+    #     # TODO: Complete
+    #     # z_num = self.opimizer.opt_x_num[...]
+
+    #     # super().calculate_sensitivities(...)
+
+    # @staticmethod
+    # def _get_do_mpc_nlp_sol(mpc_object):
+    #     nlp_sol = {}
+    #     nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
+    #     nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
+    #     nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
+    #     nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
+    #     nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
+    #     nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
+    #     return nlp_sol
