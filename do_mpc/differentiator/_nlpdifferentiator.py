@@ -244,7 +244,7 @@ class NLPDifferentiator:
         self.cons_grad_func = Function("cons_grad", [self.nlp["x"],self.nlp["p"]], [self.cons_grad_sym], ["x_opt", "p_opt"], ["d(g,x)/dx"])
 
     ### ALGORITHM    
-    def reduce_nlp_solution_to_determined(self,nlp_sol):
+    def _reduce_nlp_solution_to_determined(self,nlp_sol):
         # assert self.flags["fully_determined_nlp"], "NLP is not fully determined, e.g. some symbolic variables are not part of NLP functions f,g."
         assert self.flags["reduced_nlp"], "NLP is not reduced."
 
@@ -259,27 +259,6 @@ class NLPDifferentiator:
             nlp_sol_red["x_unscaled"] = nlp_sol["x_unscaled"][self.det_sym_idx_dict["opt_x"]]
 
         return nlp_sol_red
-
-    # def _get_active_constraints_primal(self,nlp_sol, tol): #TODO: remove
-    #     # TODO: not used yet; include in Code and remove active set detection based on dual variables
-    #     x_num = nlp_sol["x"]
-    #     g_num = nlp_sol["g"]
-    #     lbg = self.nlp_bounds["lbg"]
-    #     ubg = self.nlp_bounds["ubg"]
-    #     lbx = self.nlp_bounds["lbx"]
-    #     ubx = self.nlp_bounds["ubx"]
-
-    #     g_delta_lbg = g_num.full() - lbg
-    #     g_delta_ubg = g_num.full() - ubg
-    #     x_delta_lbx = x_num.full() - lbx
-    #     x_delta_ubx = x_num.full() - ubx
-
-    #     where_g_inactive = np.where((np.abs(g_delta_lbg)>tol) & (np.abs(g_delta_ubg)>tol))[0]
-    #     where_x_inactive = np.where((np.abs(x_delta_lbx)>tol) & (np.abs(x_delta_ubx)>tol))[0]            
-    #     where_g_active = np.where((np.abs(g_delta_lbg)<=tol) | (np.abs(g_delta_ubg)<=tol))[0]
-    #     where_x_active = np.where((np.abs(x_delta_lbx)<=tol) | (np.abs(x_delta_ubx)<=tol))[0]
-
-    #     return where_g_inactive, where_x_inactive, where_g_active, where_x_active
     
     def _get_active_constraints(self,nlp_sol):
         """
@@ -364,7 +343,47 @@ class NLPDifferentiator:
         z_num = vertcat(x_num,lam_num)
 
         return z_num, where_cons_active        
+    
+    def _get_sensitivity_matrices(self, z_num, p_num):
+        """
+        Returns the sensitivity matrix A and the sensitivity vector B of the NLP.
+        """
+        if self.flags['sym_KKT_system'] is False:
+            raise RuntimeError('No symbolic expression for sensitivitiy system computed yet.')        
+        A_num = self.A_func(z_num, p_num)
+        B_num = self.B_func(z_num, p_num)
+        return A_num, B_num
+    
+    def _reduce_sensitivity_matrices(self, A_num, B_num, where_cons_active):
+        """
+        Reduces the sensitivity matrix A and the sensitivity vector B of the NLP such that only the rows and columns corresponding to non-zero dual variables are kept.
+        """
+        where_keep_idx = [i for i in range(self.n_x)]+list(where_cons_active+self.n_x)
+        A_num = A_num[where_keep_idx,where_keep_idx]
+        B_num = B_num[where_keep_idx,:]
+        return A_num, B_num
 
+    def _solve_linear_system(self,A_num,B_num, lin_solver="scipy"):
+        """
+        Solves the linear system of equations to calculate parametric sensitivities.
+        Args:
+            A_num: Numeric A-Matrix (dF/dz).
+            B_num: Numeric B-Matrix (dF/dp).
+            lin_solver: Linear solver to use. Options are "scipy", "casadi" and "lstq".
+        Returns:
+            parametric sensitivities (n_x,n_p)
+        """
+        if lin_solver == "scipy":
+            with np.errstate(all="raise"):
+                param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
+        elif lin_solver == "casadi":
+            param_sens = solve(A_num, -B_num)
+        elif lin_solver == "lstsq":
+            param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
+        else:
+            raise ValueError("Unknown linear solver.")
+        return param_sens
+    
     def calculate_sensitivities(self, z_num, p_num, where_cons_active):
         """
         Calculates the sensitivities of the NLP solution.
@@ -406,74 +425,7 @@ class NLPDifferentiator:
             
         return param_sens, residues, LICQ_status
     
-    def map_param_sens(self, param_sens, where_cons_active):
-        """
-        Maps the parametric sensitivities to the original decision variables and lagrange multipliers.
-        """
-        dx_dp = self._map_dxdp(param_sens)
-        dlam_dp = self._map_dlamdp(param_sens, where_cons_active)
-        return dx_dp, dlam_dp
-    
-    def _get_sensitivity_matrices(self, z_num, p_num):
-        """
-        Returns the sensitivity matrix A and the sensitivity vector B of the NLP.
-        """
-        if self.flags['sym_KKT_system'] is False:
-            raise RuntimeError('No symbolic expression for sensitivitiy system computed yet.')        
-        A_num = self.A_func(z_num, p_num)
-        B_num = self.B_func(z_num, p_num)
-        return A_num, B_num
-    
-    def _reduce_sensitivity_matrices(self, A_num, B_num, where_cons_active):
-        """
-        Reduces the sensitivity matrix A and the sensitivity vector B of the NLP such that only the rows and columns corresponding to non-zero dual variables are kept.
-        """
-        where_keep_idx = [i for i in range(self.n_x)]+list(where_cons_active+self.n_x)
-        A_num = A_num[where_keep_idx,where_keep_idx]
-        B_num = B_num[where_keep_idx,:]
-        return A_num, B_num
-    
-    def _check_rank(self, A_num):
-        """
-        Checks if the sensitivity matrix A has full rank.
-        """
-        if np.linalg.matrix_rank(A_num) < A_num.shape[0]:
-            raise KeyError("Sensitivity matrix A does not have full rank.")
-    
-    def _solve_linear_system(self,A_num,B_num, lin_solver="scipy"):
-        """
-        Solves the linear system of equations to calculate parametric sensitivities.
-        Args:
-            A_num: Numeric A-Matrix (dF/dz).
-            B_num: Numeric B-Matrix (dF/dp).
-            lin_solver: Linear solver to use. Options are "scipy", "casadi" and "lstq".
-        Returns:
-            parametric sensitivities (n_x,n_p)
-        """
-        if lin_solver == "scipy":
-            # param_sens = sp_linalg.solve(A_num, -B_num)
-            # param_sens = sp_linalg.solve(A_num, -B_num, assume_a="sym")
-            # param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
-            with np.errstate(all="raise"):
-                param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
-        elif lin_solver == "casadi":
-            param_sens = solve(A_num, -B_num)
-            # linsol = Linsol("name","qr",A_num.sparsity())
-            # param_sens = linsol.solve(A_num,-B_num)
-        elif lin_solver == "lstsq":
-            param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
-        else:
-            raise ValueError("Unknown linear solver.")
-        return param_sens
-    
-    def _track_residuals(self, A_num, B_num, param_sens):
-        """
-        Tracks the residues of the linear system of equations.
-        """
-        # residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
-        residues = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
-        return residues
-
+    ### Mapping functions ###
     def _map_dxdp(self,param_sens):
         """
         Maps the parametric sensitivities to the original decision variables.
@@ -489,6 +441,30 @@ class NLPDifferentiator:
         assert len(where_cons_active) == param_sens.shape[0]-self.n_x, "Number of non-zero dual variables does not match number of parametric sensitivities for lagrange multipliers."
         dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
         return dlam_dp
+    
+    def map_param_sens(self, param_sens, where_cons_active):
+        """
+        Maps the parametric sensitivities to the original decision variables and lagrange multipliers.
+        """
+        dx_dp = self._map_dxdp(param_sens)
+        dlam_dp = self._map_dlamdp(param_sens, where_cons_active)
+        return dx_dp, dlam_dp
+    
+    ### Check assumptions ###
+    def _check_rank(self, A_num):
+        """
+        Checks if the sensitivity matrix A has full rank.
+        """
+        if np.linalg.matrix_rank(A_num) < A_num.shape[0]:
+            raise KeyError("Sensitivity matrix A does not have full rank.")
+    
+    def _track_residuals(self, A_num, B_num, param_sens):
+        """
+        Tracks the residues of the linear system of equations.
+        """
+        # residues = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
+        residues = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
+        return residues
 
     def _check_LICQ(self, x_num, p_num, where_cons_active):        
         # get constraint Jacobian
@@ -506,7 +482,7 @@ class NLPDifferentiator:
     
 
   
-class DoMPCDifferentiatior(NLPDifferentiator):
+class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
     pass
     # def __init__(self, optimizer: Optimizer, **kwargs):
     #     nlp_container = self._get_do_mpc_nlp(optimizer)
