@@ -1,4 +1,4 @@
-from _nlpdifferentiator import NLPDifferentiator#, setup_NLP_example_1, validate_fd
+from _nlpdifferentiator import NLPDifferentiator
 import casadi as ca
 import numpy as np
 
@@ -53,10 +53,10 @@ def setup_NLP_example_1():
     nlp_id = "casadi_nlp_sens_adapted"
     
     ## Decision Variables
-    x_sym = ca.SX.sym('x',2,1)
+    x_sym = ca.SX.sym('x',3,1) # x[2] not determined in equations
 
     ## Parameters
-    p_sym = ca.SX.sym('p',2,1)
+    p_sym = ca.SX.sym('p',3,1) # p[2] not determined in equations
 
     ## Objective Function
     f_sym = (p_sym[0] - x_sym[0])**2 + 0.2*(x_sym[1] - x_sym[0]**2)**2
@@ -118,18 +118,23 @@ def specify_solver(nlp):
 nlp_solver = specify_solver(nlp)
 
 # solve NLP
-p_num = np.array((0,1))
+p_num = np.array((0,1,1))
 nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
+nlp_sol["p"] = p_num
 
 # get_do_mpc_nlp_sol
-if nlp_diff.flags["reduced_nlp"]:
-    nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-else:
-    nlp_sol_red = nlp_sol
-# z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal")
-z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=True)
-param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
-dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+# if nlp_diff.flags["reduced_nlp"]:
+#     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+# else:
+#     nlp_sol_red = nlp_sol
+
+# z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol)
+# z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red)
+
+# param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active)
+# dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+
+dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = nlp_diff.differentiate(nlp_sol)
 
 if True:
     eval_dict = validate_fd(dx_dp_num, nlp_solver, nlp_bounds, p_num, x0=nlp_sol["x"], n_eval = 10, step_size = 1e-3)
