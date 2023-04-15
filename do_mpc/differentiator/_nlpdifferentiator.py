@@ -368,7 +368,7 @@ class NLPDifferentiator:
         B_num = B_num[where_keep_idx,:]
         return A_num, B_num
 
-    def _solve_linear_system(self,A_num,B_num, lin_solver="scipy"):
+    def _solve_linear_system(self,A_num,B_num, lin_solver=None):
         """
         Solves the linear system of equations to calculate parametric sensitivities.
         Args:
@@ -500,7 +500,7 @@ class NLPDifferentiator:
 
         # get parameters of optimal solution
         p_num = nlp_sol["p"]
-        
+
         # extract active primal and dual solution
         z_num, where_cons_active = self._extract_active_primal_dual_solution(nlp_sol)
 
