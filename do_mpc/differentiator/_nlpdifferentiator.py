@@ -533,46 +533,43 @@ class NLPDifferentiator:
 
 
   
-# class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
-#     def __init__(self, optimizer: Optimizer, **kwargs):
-#         nlp_container = self._get_do_mpc_nlp(optimizer)
-        
-#         self.optimizer = optimizer
-#         super().__init__(nlp_container,**kwargs)
+class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
+    def __init__(self, optimizer: Optimizer, **kwargs):
+        nlp_container = self._get_do_mpc_nlp(optimizer)        
+        self.optimizer = optimizer
+        super().__init__(nlp_container,**kwargs)
 
-#     @staticmethod
-#     def _get_do_mpc_nlp(mpc_object):
-#         """
-#         This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
-#         It is used to initialize the NLPDifferentiator class.
-#         """
+    def _get_do_mpc_nlp(self, mpc_object):
+        """
+        This function is used to extract the symbolic expressions and bounds of the underlying NLP of the MPC.
+        It is used to initialize the NLPDifferentiator class.
+        """
 
-#         # 1 get symbolic expressions of NLP
-#         nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
+        # 1 get symbolic expressions of NLP
+        nlp = {'x': vertcat(mpc_object.opt_x), 'f': mpc_object.nlp_obj, 'g': mpc_object.nlp_cons, 'p': vertcat(mpc_object.opt_p)}
 
-#         # 2 extract bounds
-#         nlp_bounds = {}
-#         nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
-#         nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
-#         nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
-#         nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
+        # 2 extract bounds
+        nlp_bounds = {}
+        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
+        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
+        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
+        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
 
-#         # return nlp, nlp_bounds
-#         return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
+        # return nlp, nlp_bounds
+        # return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
+        return {"nlp": nlp, "nlp_bounds": nlp_bounds}
 
-#     def calculate_sensitivities(self):
-#         # TODO: Complete
-#         # z_num = self.opimizer.opt_x_num[...]
-
-#         # super().calculate_sensitivities(...)
-
-#     @staticmethod
-#     def _get_do_mpc_nlp_sol(mpc_object):
-#         nlp_sol = {}
-#         nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
-#         nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
-#         nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
-#         nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
-#         nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
-#         nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
-#         return nlp_sol
+    def _get_do_mpc_nlp_sol(self, mpc_object):
+        nlp_sol = {}
+        nlp_sol["x"] = vertcat(mpc_object.opt_x_num)
+        nlp_sol["x_unscaled"] = vertcat(mpc_object.opt_x_num_unscaled)
+        nlp_sol["g"] = vertcat(mpc_object.opt_g_num)
+        nlp_sol["lam_g"] = vertcat(mpc_object.lam_g_num)
+        nlp_sol["lam_x"] = vertcat(mpc_object.lam_x_num)
+        nlp_sol["p"] = vertcat(mpc_object.opt_p_num)
+        return nlp_sol
+    
+    def differentiate(self):
+        nlp_sol = self._get_do_mpc_nlp_sol(self.optimizer)
+        dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = super().differentiate(nlp_sol)
+        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active
