@@ -85,15 +85,16 @@ Run MPC main loop:
 
 # run stats
 LICQ_status_list = []
-residues_list = []
+residuals_list = []
 param_sens_list = []
+track_nlp_obj = []
+track_nlp_res = []
 
 
-nlp_diff = differentiator.NLPDifferentiator.from_optimizer(mpc)
+# nlp_diff = differentiator.NLPDifferentiator.from_optimizer(mpc)
 # nlp_diff = differentiator.NLPDifferentiator(mpc)
+nlp_diff = differentiator.DoMPCDifferentiatior(mpc)
 
-# import pdb
-# pdb.set_trace()
 for k in range(10):
     
    
@@ -103,28 +104,34 @@ for k in range(10):
 
 
     # get_do_mpc_nlp_sol
-    nlp_sol = nlp_diff._get_do_mpc_nlp_sol(mpc)
-    if nlp_diff.flags["reduced_nlp"]:
-        nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-    else:
-        nlp_sol_red = nlp_sol
+    # nlp_sol = nlp_diff._get_do_mpc_nlp_sol(mpc)
+    # if nlp_diff.flags["reduced_nlp"]:
+    #     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
+    # else:
+    #     nlp_sol_red = nlp_sol
     
-    p_num = nlp_sol_red["p"]
+    # p_num = nlp_sol_red["p"]
     
-    z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=False)
+    # z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=False)
     # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
+
+    track_nlp_obj.append(nlp_diff.nlp.copy())
+    track_nlp_res.append(nlp_diff._get_do_mpc_nlp_sol(nlp_diff.optimizer).copy())
+
     tic = time.time()
     print("iteration: ", k)
-    param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
+    # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
+    # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
+    dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = nlp_diff.differentiate()
     toc = time.time()
     print("Time to calculate sensitivities: ", toc-tic)
-    # assert k<87
-    # assert residues<=1e-12
-    dx_dp_num, dlam_dp_num = nlp_diff.map_param_sens(param_sens, where_cons_active)
+    assert LICQ_status==True
+    assert residuals<=1e-12
+    assert k<5
 
     LICQ_status_list.append(LICQ_status)
-    residues_list.append(residues)
-    param_sens_list.append(param_sens)
+    residuals_list.append(residuals)
+    param_sens_list.append(dx_dp_num)
 
     # sens_struct = differentiator.build_sens_sym_struct(mpc)    
     # sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
