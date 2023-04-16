@@ -43,7 +43,7 @@ import parametric_sensitivities as ps
 
 
 """ User settings: """
-show_animation = True
+show_animation = False
 store_results = False
 
 """
@@ -136,13 +136,35 @@ for k in range(10):
     # sens_struct = differentiator.build_sens_sym_struct(mpc)    
     # sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
 
+    if True:
+        nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
+        nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
+        nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
+        
+        idx_x_determined, idx_p_determined = det_idx_dict["opt_x"], det_idx_dict["opt_p"]
 
-    # nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
-    # nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
-    # nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
+        dxdp_num_alt_zeros = np.zeros((nlp_dict["x"].shape[0],nlp_dict["p"].shape[0]))
+
+        dxdp_num_alt_full = dxdp_num_alt_zeros.copy()
+        dxdp_num_alt_full[idx_x_determined[:,None],idx_p_determined] = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="full")
+        
+        dxdp_num_alt_as = dxdp_num_alt_zeros.copy()
+        # dxdp_num_alt_as = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
+        dxdp_num_alt_as[idx_x_determined[:,None],idx_p_determined] = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
+
+    # rec_nlp = ps.reconstruct_nlp(nlp_standard_full_dict)
+    if True:
+        rec_nlp = ps.reconstruct_nlp(nlp_diff.nlp_unreduced)
+        S = nlpsol("S", "ipopt", rec_nlp)    
+        # eval_dict = ps.validate_fd(dx_dp_num, S, nlp_diff.nlp_bounds_unreduced, nlp_sol["p"], nlp_sol["x"], n_eval= 10, step_size= 1e-3)
+        abs_env_error = ps.validate_env_theorem(dxdp_num_alt_as, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
+        # abs_env_error = ps.validate_env_theorem(dx_dp_num, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
     
-    # dxdp_num_alt = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="full")
     
+    # assert np.abs(dxdp_num_alt_full - dxdp_num_alt_as).max()<1e-6
+    assert np.abs(dx_dp_num - dxdp_num_alt_as).max()<1e-6
+    assert np.abs(dx_dp_num - dxdp_num_alt_full).max()<1e-6
+    # assert np.abs(dx_dp_num[nlp_diff.det_sym_idx_dict["opt_x"][:,None],nlp_diff.det_sym_idx_dict["opt_p"]] - dxdp_num_alt_full).max()<1e-6
     # assert k<81
     # assert np.abs(dx_dp_num-dxdp_num_alt).max()<1e-10
     # print(sens_num["dxdp", indexf["_x",0,0,-1], indexf["_x0"]])
