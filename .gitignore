@@ -32,3 +32,5 @@ testing/model.pkl
 .venv/
 
 .vscode/launch.json
+
+.vscode/settings.json
