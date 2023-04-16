@@ -77,7 +77,7 @@ class NLPDifferentiatorSettings:
     ...
     """
 
-    set_lam_zero: bool = True
+    set_lam_zero: bool = False
     """
     ...
     """
@@ -573,3 +573,7 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
         nlp_sol = self._get_do_mpc_nlp_sol(self.optimizer)
         dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = super().differentiate(nlp_sol)
         return dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active
+    
+
+
+# TODO: re-scaling of parametric senstivities: x is scaled.
