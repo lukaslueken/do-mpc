@@ -62,7 +62,7 @@ class NLPDifferentiatorSettings:
     Compute the residuals of the KKT system.
     """
 
-    check_rank: bool = True
+    check_rank: bool = False
     """
     ....
     """
