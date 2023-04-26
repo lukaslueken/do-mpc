@@ -303,10 +303,10 @@ class NLPDifferentiator:
         ubx = self.nlp_bounds["ubx"]
 
         ## determine distance to bounds
-        g_delta_lbg = g_num.full() - lbg
-        g_delta_ubg = g_num.full() - ubg
-        x_delta_lbx = x_num.full() - lbx
-        x_delta_ubx = x_num.full() - ubx
+        g_delta_lbg = g_num - lbg
+        g_delta_ubg = g_num - ubg
+        x_delta_lbx = x_num - lbx
+        x_delta_ubx = x_num - ubx
 
         ## determine active set based on distance to bounds with tolerance tol
         where_g_inactive = np.where((np.abs(g_delta_lbg)>self.settings.active_set_tol) & (np.abs(g_delta_ubg)>self.settings.active_set_tol))[0]
@@ -381,7 +381,7 @@ class NLPDifferentiator:
             with np.errstate(all="raise"):
                 # param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
                 param_sens = sp_sparse.linalg.spsolve(A_num.tocsc(),-B_num.tocsc())
-                param_sens = param_sens.toarray()
+                # param_sens = param_sens.toarray()
         elif lin_solver == "casadi":
             param_sens = solve(A_num, -B_num)
         elif lin_solver == "lstsq":
@@ -436,7 +436,7 @@ class NLPDifferentiator:
         """
         Maps the parametric sensitivities to the original decision variables.
         """
-        dx_dp = param_sens[:self.n_x,:]
+        dx_dp = param_sens[:self.n_x,:].toarray()
         return dx_dp
     
     def _map_dlamdp(self, param_sens: np.ndarray, where_cons_active: np.ndarray) -> np.ndarray:
@@ -445,7 +445,7 @@ class NLPDifferentiator:
         """
         dlam_dp = np.zeros((self.n_g+self.n_x,self.n_p))
         assert len(where_cons_active) == param_sens.shape[0]-self.n_x, "Number of non-zero dual variables does not match number of parametric sensitivities for lagrange multipliers."
-        dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
+        dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:].toarray()
         return dlam_dp
     
     def _map_param_sens(self, param_sens: np.ndarray, where_cons_active: np.ndarray) -> tuple[np.ndarray]:
@@ -463,9 +463,11 @@ class NLPDifferentiator:
         idx_x_determined, idx_p_determined = self.det_sym_idx_dict["opt_x"], self.det_sym_idx_dict["opt_p"]
 
         dx_dp_num = np.zeros((self.n_x_unreduced,self.n_p_unreduced))
+        dx_dp_num = sp_sparse.csc_matrix(dx_dp_num)
         dx_dp_num[idx_x_determined[:,None],idx_p_determined] = dx_dp_num_red
         
         dlam_dp_num = np.zeros((self.n_g+self.n_x_unreduced,self.n_p_unreduced))
+        dlam_dp_num = sp_sparse.csc_matrix(dlam_dp_num)
 
         idx_lam_determined = np.hstack([np.arange(0,self.n_g,dtype=np.int64),idx_x_determined+self.n_g])
 
@@ -554,10 +556,10 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
 
         # 2 extract bounds
         nlp_bounds = {}
-        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb#.full()#.reshape(-1,1)
-        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub#.full()#.reshape(-1,1)
-        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x)#.full()#.reshape(-1,1)
-        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x)#.full()#.reshape(-1,1)
+        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb
+        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub
+        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x)
+        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x)
 
         # return nlp, nlp_bounds
         # return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
