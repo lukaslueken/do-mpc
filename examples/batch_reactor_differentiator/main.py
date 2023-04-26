@@ -151,7 +151,7 @@ for k in range(10):
 
 
 
-    if True:
+    if False:
         nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
         nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
         nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
@@ -167,18 +167,19 @@ for k in range(10):
         # dxdp_num_alt_as = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
         dxdp_num_alt_as[idx_x_determined[:,None],idx_p_determined] = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
 
+        assert np.abs(dxdp_num_alt_full - dxdp_num_alt_as).max()<1e-6
+        assert np.abs(dx_dp_num - dxdp_num_alt_as).max()<1e-6
+        assert np.abs(dx_dp_num - dxdp_num_alt_full).max()<1e-6    
+
     # rec_nlp = ps.reconstruct_nlp(nlp_standard_full_dict)
-    if True:
+    if False:
         rec_nlp = ps.reconstruct_nlp(nlp_diff.nlp_unreduced)
         S = nlpsol("S", "ipopt", rec_nlp)    
         # eval_dict = ps.validate_fd(dx_dp_num, S, nlp_diff.nlp_bounds_unreduced, nlp_sol["p"], nlp_sol["x"], n_eval= 10, step_size= 1e-3)
-        abs_env_error = ps.validate_env_theorem(dxdp_num_alt_as, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
+        abs_env_error = ps.validate_env_theorem(dx_dp_num, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
         # abs_env_error = ps.validate_env_theorem(dx_dp_num, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
         assert abs_env_error.max()<1e-8
     
-    assert np.abs(dxdp_num_alt_full - dxdp_num_alt_as).max()<1e-6
-    assert np.abs(dx_dp_num - dxdp_num_alt_as).max()<1e-6
-    assert np.abs(dx_dp_num - dxdp_num_alt_full).max()<1e-6    
     
 
     if show_animation:
