@@ -55,7 +55,12 @@ class NLPDifferentiatorSettings:
 
     check_LICQ: bool = True
     """
-    Check if the KKT system is linearly independent.    
+    Check if the constraints are linearly independent.    
+    """
+
+    check_SC: bool = True
+    """
+    Check if strict complementarity holds.   
     """
 
     track_residuals: bool = True
@@ -401,10 +406,14 @@ class NLPDifferentiator:
         """
         # returns
         LICQ_status = None
+        SC_status = None
         residuals = None
 
         if self.settings.check_LICQ:
             LICQ_status = self._check_LICQ(z_num[:self.n_x], p_num,where_cons_active)
+        
+        if self.settings.check_SC:
+            SC_status = self._check_SC(z_num[self.n_x:], where_cons_active)
         
         A_num, B_num = self._get_sensitivity_matrices(z_num, p_num)
         A_num, B_num = self._reduce_sensitivity_matrices(A_num, B_num, where_cons_active)
@@ -429,7 +438,7 @@ class NLPDifferentiator:
         if self.settings.track_residuals:
             residuals = self._track_residuals(A_num, B_num, param_sens)
             
-        return param_sens, residuals, LICQ_status
+        return param_sens, residuals, LICQ_status, SC_status
     
     ### Mapping functions ###
     def _map_dxdp(self, param_sens: np.ndarray) -> np.ndarray:
@@ -506,6 +515,19 @@ class NLPDifferentiator:
             print("LICQ satisfied.")
             return True
     
+    def _check_SC(self, lam_num: DM, where_cons_active: np.ndarray):
+        # function to check assumption of strict complementarity
+        # lagrange multipliers for active set
+        lam_num = lam_num[where_cons_active]
+        # check if all absolute values of lagrange multipliers are strictly greater than active set tolerance
+        if np.all(np.abs(lam_num) >= self.settings.active_set_tol):
+            print("Strict complementarity satisfied.")
+            return True
+        else:
+            # n_violation_SC = sum(np.abs(lam_num)<self.settings.active_set_tol)
+            print("Strict complementarity not satisfied.")
+            return False
+
     ### differentiaton step ###
 
     # the next function applies the whole algorithm given in the code abouve and returns the sensitivities dx_dp
@@ -526,7 +548,7 @@ class NLPDifferentiator:
         z_num, where_cons_active = self._extract_active_primal_dual_solution(nlp_sol)
 
         # calculate parametric sensitivities
-        param_sens, residuals, LICQ_status = self._calculate_sensitivities(z_num, p_num, where_cons_active)
+        param_sens, residuals, LICQ_status, SC_status = self._calculate_sensitivities(z_num, p_num, where_cons_active)
 
         # map sensitivities to original decision variables and lagrange multipliers
         dx_dp_num_red, dlam_dp_num_red = self._map_param_sens(param_sens, where_cons_active)
@@ -535,7 +557,7 @@ class NLPDifferentiator:
         else:
             dx_dp_num = dx_dp_num_red
 
-        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active
+        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active
 
 
   
@@ -577,8 +599,8 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
     
     def differentiate(self):
         nlp_sol = self._get_do_mpc_nlp_sol(self.optimizer)
-        dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = super().differentiate(nlp_sol)
-        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active
+        dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = super().differentiate(nlp_sol)
+        return dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active
     
 
 
