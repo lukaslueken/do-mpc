@@ -48,7 +48,7 @@ def template_mpc(model):
         'collocation_ni': 2,
         'store_full_solution': True,
         # Use MA27 linear solver in ipopt for faster calculations:
-        'nlpsol_opts': {'ipopt.fixed_variable_treatment': 'make_constraint'}
+        'nlpsol_opts': {'ipopt.fixed_variable_treatment': 'make_constraint','ipopt.tol': 1e-16}
     }
 
     mpc.set_param(**setup_mpc)
