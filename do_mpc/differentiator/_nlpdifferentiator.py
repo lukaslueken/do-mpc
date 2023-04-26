@@ -15,32 +15,32 @@ import warnings
 warnings.filterwarnings("error",category=sp_linalg.LinAlgWarning)
 
 ### Helper Functions NLP Differentiator
-def build_sens_sym_struct(mpc: Optimizer):
-    opt_x = mpc._opt_x
-    opt_p = mpc._opt_p
+# def build_sens_sym_struct(mpc: Optimizer):
+#     opt_x = mpc._opt_x
+#     opt_p = mpc._opt_p
     
-    sens_struct = struct_symSX([
-        entry("dxdp",shapestruct=(opt_x, opt_p)),
-    ])
+#     sens_struct = struct_symSX([
+#         entry("dxdp",shapestruct=(opt_x, opt_p)),
+#     ])
 
-    return sens_struct
+#     return sens_struct
 
-def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
+# def assign_num_to_sens_struct(sens_struct,dxdp_num,undet_sym_idx_dict):
 
-    dxdp_init = dxdp_num#.copy()
-    ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
-    ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
+#     dxdp_init = dxdp_num#.copy()
+#     ins_idx_x = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
+#     ins_idx_p = [val-idx for idx, val in enumerate(undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
     
-    dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
-    dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
+#     dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
+#     dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
     
-    assert dxdp_init.shape == sens_struct["dxdp"].shape
+#     assert dxdp_init.shape == sens_struct["dxdp"].shape
     
-    sens_num = sens_struct(0)
+#     sens_num = sens_struct(0)
     
-    sens_num["dxdp"] = dxdp_init
+#     sens_num["dxdp"] = dxdp_init
 
-    return sens_num
+#     return sens_num
 
 
 @dataclass
@@ -602,6 +602,40 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
         dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = super().differentiate(nlp_sol)
         return dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active
     
+    # mapping of parametric sensitivities of decision variables w.r.t parameters on casadi sym struct
+    def get_dxdp_symstruct(self,dx_dp_num):
+        sens_struct = self._build_sens_sym_struct(self.optimizer)
+        sens_num = self._assign_num_to_sens_struct(sens_struct,dx_dp_num)
+        return sens_num
+
+    def _build_sens_sym_struct(self,mpc: Optimizer):
+        opt_x = mpc._opt_x
+        opt_p = mpc._opt_p
+        
+        sens_struct = struct_symSX([
+            entry("dxdp",shapestruct=(opt_x, opt_p)),
+        ])
+
+        return sens_struct
+
+    def _assign_num_to_sens_struct(self,sens_struct,dxdp_num):
+
+        # dxdp_init = dxdp_num
+        # ins_idx_x = [val-idx for idx, val in enumerate(self.undet_sym_idx_dict["opt_x"])] # used for inserting zero rows in dxdp_init
+        # ins_idx_p = [val-idx for idx, val in enumerate(self.undet_sym_idx_dict["opt_p"])] # used for inserting zero columns in dxdp_init
+        
+        # dxdp_init = np.insert(dxdp_init, ins_idx_x, 0.0, axis=0)
+        # dxdp_init = np.insert(dxdp_init, ins_idx_p, 0.0, axis=1)
+        
+        # assert dxdp_init.shape == sens_struct["dxdp"].shape
+        
+        sens_num = sens_struct(0)
+        
+        # sens_num["dxdp"] = dxdp_init
+        sens_num["dxdp"] = dxdp_num
+
+        return sens_num
+        
 
 
 # TODO: re-scaling of parametric senstivities: x is scaled.

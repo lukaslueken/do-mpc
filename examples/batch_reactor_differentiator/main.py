@@ -138,15 +138,18 @@ for k in range(10):
     print("Time to calculate sensitivities: ", toc-tic)
     assert LICQ_status==True
     assert residuals<=1e-12
-    # assert k<5
+    
 
     LICQ_status_list.append(LICQ_status)
     SC_status_list.append(SC_status)
     residuals_list.append(residuals)
     param_sens_list.append(dx_dp_num)
 
-    # sens_struct = differentiator.build_sens_sym_struct(mpc)    
-    # sens_num = differentiator.assign_num_to_sens_struct(sens_struct,dx_dp_num,nlp_diff.undet_sym_idx_dict)
+    sens_num = nlp_diff.get_dxdp_symstruct(dx_dp_num)
+    du0dx0_num = sens_num["dxdp", indexf["_u",0,0], indexf["_x0"]]
+    du0du_prev_num = sens_num["dxdp", indexf["_u",0,0], indexf["_u_prev"]]
+
+
 
     if True:
         nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
