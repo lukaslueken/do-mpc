@@ -127,11 +127,12 @@ p_num = np.array((0,1,1))
 nlp_sol = nlp_solver(x0=0, p=p_num, **nlp_bounds)
 nlp_sol["p"] = p_num
 
-dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = nlp_diff.differentiate(nlp_sol)
+dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = nlp_diff.differentiate(nlp_sol)
 
 # print residuals, LICQ_statusm where_cons_active
 print("residuals: ", residuals)
 print("LICQ_status: ", LICQ_status)
+print("SC_status: ", SC_status)
 print("where_cons_active: ", where_cons_active)
 
 if False:

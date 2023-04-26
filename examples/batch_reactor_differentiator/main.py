@@ -85,6 +85,7 @@ Run MPC main loop:
 
 # run stats
 LICQ_status_list = []
+SC_status_list = []
 residuals_list = []
 param_sens_list = []
 track_nlp_obj = []
@@ -132,7 +133,7 @@ for k in range(10):
     print("iteration: ", k)
     # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
     # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
-    dx_dp_num, dlam_dp_num, residuals, LICQ_status, where_cons_active = nlp_diff.differentiate()
+    dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = nlp_diff.differentiate()
     toc = time.time()
     print("Time to calculate sensitivities: ", toc-tic)
     assert LICQ_status==True
@@ -140,6 +141,7 @@ for k in range(10):
     # assert k<5
 
     LICQ_status_list.append(LICQ_status)
+    SC_status_list.append(SC_status)
     residuals_list.append(residuals)
     param_sens_list.append(dx_dp_num)
 
