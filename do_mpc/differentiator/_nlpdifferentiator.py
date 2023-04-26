@@ -561,10 +561,11 @@ class NLPDifferentiator:
 
 
   
-class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
+class DoMPCDifferentiatior(NLPDifferentiator):
     def __init__(self, optimizer: Optimizer, **kwargs):
         nlp_container = self._get_do_mpc_nlp(optimizer)        
         self.optimizer = optimizer
+        self.x_scaling_factors = self.optimizer.opt_x_scaling.master
         super().__init__(nlp_container,**kwargs)
 
     def _get_do_mpc_nlp(self, mpc_object):
@@ -600,6 +601,10 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
     def differentiate(self):
         nlp_sol = self._get_do_mpc_nlp_sol(self.optimizer)
         dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = super().differentiate(nlp_sol)
+        
+        # rescale dx_dp_num
+        dx_dp_num = times(dx_dp_num,self.x_scaling_factors.tocsc())
+
         return dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active
     
     # mapping of parametric sensitivities of decision variables w.r.t parameters on casadi sym struct
