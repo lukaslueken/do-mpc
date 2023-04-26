@@ -48,7 +48,7 @@ class NLPDifferentiatorSettings:
     """Settings for NLPDifferentiator.
     """
 
-    lin_solver: str = 'scipy'
+    lin_solver: str = 'casadi' #'scipy' or 'casadi' or 'lstsq'
     """
     Choose the linear solver for the KKT system.
     """
@@ -385,9 +385,11 @@ class NLPDifferentiator:
             with np.errstate(all="raise"):
                 # param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
                 param_sens = sp_sparse.linalg.spsolve(A_num.tocsc(),-B_num.tocsc())
-                # param_sens = param_sens.toarray()
         elif lin_solver == "casadi":
-            param_sens = solve(A_num, -B_num)
+            ca_lin_solver = Linsol("sol","qr",A_num.sparsity())
+            # ca_lin_solver = Linsol("sol","qr",A_num.sparsity())
+            param_sens = ca_lin_solver.solve(A_num, -B_num)
+            # param_sens = solve(A_num, -B_num)
         elif lin_solver == "lstsq":
             param_sens = np.linalg.lstsq(A_num, -B_num, rcond=None)[0]
         else:
@@ -444,7 +446,10 @@ class NLPDifferentiator:
         """
         Maps the parametric sensitivities to the original decision variables.
         """
-        dx_dp = param_sens[:self.n_x,:].toarray()
+        if sp_sparse.issparse(param_sens):
+            dx_dp = param_sens[:self.n_x,:].toarray()
+        else:
+            dx_dp = param_sens[:self.n_x,:]
         return dx_dp
     
     def _map_dlamdp(self, param_sens: np.ndarray, where_cons_active: np.ndarray) -> np.ndarray:
@@ -453,7 +458,12 @@ class NLPDifferentiator:
         """
         dlam_dp = np.zeros((self.n_g+self.n_x,self.n_p))
         assert len(where_cons_active) == param_sens.shape[0]-self.n_x, "Number of non-zero dual variables does not match number of parametric sensitivities for lagrange multipliers."
-        dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:].toarray()
+        
+        if sp_sparse.issparse(param_sens):
+            dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:].toarray()
+        else:
+            dlam_dp[where_cons_active,:] = param_sens[self.n_x:,:]
+
         return dlam_dp
     
     def _map_param_sens(self, param_sens: np.ndarray, where_cons_active: np.ndarray) -> tuple[np.ndarray]:
