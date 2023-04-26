@@ -34,3 +34,5 @@ testing/model.pkl
 .vscode/launch.json
 
 .vscode/settings.json
+
+*.prof
