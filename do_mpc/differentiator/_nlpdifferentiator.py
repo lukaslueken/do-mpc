@@ -115,7 +115,6 @@ class NLPDifferentiator:
                 
     ### SETUP
     def _setup_nlp(self, nlp_container: dict) -> None:
-        #TODO: check whether mpc using scaling
         if isinstance(nlp_container, dict):
             self.nlp, self.nlp_bounds = nlp_container["nlp"].copy(), nlp_container["nlp_bounds"].copy()
         else:
@@ -204,7 +203,7 @@ class NLPDifferentiator:
             # self.flags["fully_determined_nlp"] = True
             print("NLP formulation does not contain unused variables.")
 
-    def _get_size_metrics(self): #TODO: rename, since not a "getter" function but rather a specification/definition
+    def _get_size_metrics(self):
         """
         Specifies the number of decision variables, nonlinear constraints and parameters of the NLP.
         """
@@ -216,7 +215,7 @@ class NLPDifferentiator:
             self.n_x_unreduced = self.nlp_unreduced["x"].shape[0]
             self.n_p_unreduced = self.nlp_unreduced["p"].shape[0]
 
-    def _get_sym_lagrange_multipliers(self): #TODO: rename, since not a "getter" function but rather a specification/definition
+    def _get_sym_lagrange_multipliers(self):
         self.nlp["lam_g"] = SX.sym("lam_g",self.n_g,1)
         self.nlp["lam_x"] = SX.sym("lam_x",self.n_x,1)
         self.nlp["lam"] = vertcat(self.nlp["lam_g"],self.nlp["lam_x"])
@@ -224,7 +223,7 @@ class NLPDifferentiator:
     def _stack_primal_dual(self):
         self.nlp["z"] = vertcat(self.nlp["x"],self.nlp["lam"])
 
-    def _get_Lagrangian_sym(self): #TODO: rename, since not a "getter" function but rather a specification/definition
+    def _get_Lagrangian_sym(self): 
         """
         Sets the Lagrangian of the NLP for sensitivity calculation.
         Attention: It is not verified, whether the NLP is in standard form. 
@@ -234,11 +233,11 @@ class NLPDifferentiator:
         self.L_sym = self.nlp["f"] + self.nlp['lam_g'].T @ self.nlp['g'] + self.nlp['lam_x'].T @ self.nlp['x']
         # self.flags['get_Lagrangian'] = True
 
-    def _get_A_matrix(self):  #TODO: rename, since not a "getter" function but rather a specification/definition
+    def _get_A_matrix(self):
         self.A_sym = hessian(self.L_sym,self.nlp["z"])[0]
         self.A_func = Function("A", [self.nlp["z"],self.nlp["p"]], [self.A_sym], ["z_opt", "p_opt"], ["A"])
 
-    def _get_B_matrix(self):  #TODO: rename, since not a "getter" function but rather a specification/definition
+    def _get_B_matrix(self):
         # TODO: Note, full parameter vector considered for differentiation. This is not necessary, if only a subset of the parametric sensitivities is required. Future version will considere reduces parameter space.
         self.B_sym = jacobian(gradient(self.L_sym,self.nlp["z"]),self.nlp["p"])
         self.B_func = Function("B", [self.nlp["z"],self.nlp["p"]], [self.B_sym], ["z_opt", "p_opt"], ["B"])
@@ -269,7 +268,7 @@ class NLPDifferentiator:
 
         return nlp_sol_red
     
-    def _get_active_constraints(self,nlp_sol: dict) -> tuple[np.ndarray]: # TODO: change datastructure of return to tuple of lists with ints
+    def _get_active_constraints(self,nlp_sol: dict) -> tuple[np.ndarray]:
         """
         This function determines the active set of the current NLP solution. The active set is determined by the "primal" solution, considering the bounds on the variables and constraints.
         The active set is returned as a list of numpy arrays containing the indices of the active and inactive nonlinear and linear constraints.
@@ -321,7 +320,7 @@ class NLPDifferentiator:
         
         return where_g_inactive, where_x_inactive, where_g_active, where_x_active 
     
-    def _extract_active_primal_dual_solution(self, nlp_sol: dict) -> tuple[DM,np.ndarray]: #TODO: finish, documente
+    def _extract_active_primal_dual_solution(self, nlp_sol: dict) -> tuple[DM,np.ndarray]:
         """
         This function extracts the active primal and dual solution from the NLP solution and stackes it into a single vector. The active set is determined by the "primal" or "dual" solution.
         Lagrange multipliers of inactive constraints can be set to zero with the argument set_lam_zero.
@@ -640,7 +639,3 @@ class DoMPCDifferentiatior(NLPDifferentiator):
         sens_num["dxdp"] = dxdp_num
 
         return sens_num
-        
-
-
-# TODO: re-scaling of parametric senstivities: x is scaled.
