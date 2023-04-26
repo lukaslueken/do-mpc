@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.linalg as sp_linalg
+import scipy.sparse as sp_sparse
 from casadi import *
 from casadi.tools import *
 from dataclasses import dataclass
@@ -378,7 +379,9 @@ class NLPDifferentiator:
         """
         if lin_solver == "scipy":
             with np.errstate(all="raise"):
-                param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
+                # param_sens = sp_linalg.solve(A_num.full(), -B_num.full(), assume_a="sym")
+                param_sens = sp_sparse.linalg.spsolve(A_num.tocsc(),-B_num.tocsc())
+                param_sens = param_sens.toarray()
         elif lin_solver == "casadi":
             param_sens = solve(A_num, -B_num)
         elif lin_solver == "lstsq":
@@ -483,7 +486,8 @@ class NLPDifferentiator:
         Tracks the residuals of the linear system of equations.
         """
         # residuals = np.linalg.norm(A_num.dot(param_sens)+B_num, ord=2)
-        residuals = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
+        # residuals = np.linalg.norm(A_num.full().dot(param_sens)+B_num.full(), ord=2)
+        residuals = norm_fro(A_num@param_sens+B_num)
         return residuals
 
     def _check_LICQ(self, x_num: DM, p_num: DM, where_cons_active: np.ndarray) -> bool:        
@@ -550,10 +554,10 @@ class DoMPCDifferentiatior(NLPDifferentiator): #TODO: finish this class
 
         # 2 extract bounds
         nlp_bounds = {}
-        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb.full()#.reshape(-1,1)
-        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub.full()#.reshape(-1,1)
-        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x).full()#.reshape(-1,1)
-        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x).full()#.reshape(-1,1)
+        nlp_bounds['lbg'] = mpc_object.nlp_cons_lb#.full()#.reshape(-1,1)
+        nlp_bounds['ubg'] = mpc_object.nlp_cons_ub#.full()#.reshape(-1,1)
+        nlp_bounds['lbx'] = vertcat(mpc_object._lb_opt_x)#.full()#.reshape(-1,1)
+        nlp_bounds['ubx'] = vertcat(mpc_object._ub_opt_x)#.full()#.reshape(-1,1)
 
         # return nlp, nlp_bounds
         # return {"nlp": nlp.copy(), "nlp_bounds": nlp_bounds.copy()}
