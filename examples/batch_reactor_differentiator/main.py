@@ -39,12 +39,9 @@ from template_model import template_model
 from template_mpc import template_mpc
 from template_simulator import template_simulator
 
-import parametric_sensitivities as ps
-
 
 """ User settings: """
 show_animation = False
-store_results = False
 
 """
 Get configured do-mpc modules:
@@ -114,25 +111,11 @@ for k in range(10):
     x0 = estimator.make_step(y_next)
 
 
-    # get_do_mpc_nlp_sol
-    # nlp_sol = nlp_diff._get_do_mpc_nlp_sol(mpc)
-    # if nlp_diff.flags["reduced_nlp"]:
-    #     nlp_sol_red = nlp_diff.reduce_nlp_solution_to_determined(nlp_sol)
-    # else:
-    #     nlp_sol_red = nlp_sol
-    
-    # p_num = nlp_sol_red["p"]
-    
-    # z_num, where_cons_active = nlp_diff._extract_active_primal_dual_solution(nlp_sol_red, tol=1e-6,set_lam_zero=False)
-    # z_num, where_cons_active = nlp_diff.extract_active_primal_dual_solution(nlp_sol_red, method_active_set="primal", primal_tol=1e-6,dual_tol=1e-12)
-
     track_nlp_obj.append(nlp_diff.nlp.copy())
     track_nlp_res.append(nlp_diff._get_do_mpc_nlp_sol(nlp_diff.optimizer).copy())
 
     tic = time.time()
     print("iteration: ", k)
-    # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
-    # param_sens, residues, LICQ_status = nlp_diff.calculate_sensitivities(z_num, p_num, where_cons_active, check_rank=True, track_residues=True, lstsq_fallback=True)
     dx_dp_num, dlam_dp_num, residuals, LICQ_status, SC_status, where_cons_active = nlp_diff.differentiate()
     toc = time.time()
     print("Time to calculate sensitivities: ", toc-tic)
@@ -148,39 +131,7 @@ for k in range(10):
     sens_num = nlp_diff.get_dxdp_symstruct(dx_dp_num)
     du0dx0_num = sens_num["dxdp", indexf["_u",0,0], indexf["_x0"]]
     du0du_prev_num = sens_num["dxdp", indexf["_u",0,0], indexf["_u_prev"]]
-
-
-
-    if False:
-        nlp_dict, nlp_bounds = ps.get_do_mpc_nlp(mpc)
-        nlp_sol = ps.get_do_mpc_nlp_sol(mpc)
-        nlp_dict_red, nlp_bounds_red, nlp_sol_red, det_idx_dict, undet_idx_dict = ps.reduce_nlp_to_determined(nlp_dict, nlp_bounds, nlp_sol)
-        
-        idx_x_determined, idx_p_determined = det_idx_dict["opt_x"], det_idx_dict["opt_p"]
-
-        dxdp_num_alt_zeros = np.zeros((nlp_dict["x"].shape[0],nlp_dict["p"].shape[0]))
-
-        dxdp_num_alt_full = dxdp_num_alt_zeros.copy()
-        dxdp_num_alt_full[idx_x_determined[:,None],idx_p_determined] = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="full")
-        
-        dxdp_num_alt_as = dxdp_num_alt_zeros.copy()
-        # dxdp_num_alt_as = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
-        dxdp_num_alt_as[idx_x_determined[:,None],idx_p_determined] = ps.solve_nlp_sens(nlp_dict_red, nlp_bounds_red, nlp_sol_red, nlp_sol_red["p"], mode="active-set")
-
-        assert np.abs(dxdp_num_alt_full - dxdp_num_alt_as).max()<1e-6
-        assert np.abs(dx_dp_num - dxdp_num_alt_as).max()<1e-6
-        assert np.abs(dx_dp_num - dxdp_num_alt_full).max()<1e-6    
-
-    # rec_nlp = ps.reconstruct_nlp(nlp_standard_full_dict)
-    if False:
-        rec_nlp = ps.reconstruct_nlp(nlp_diff.nlp_unreduced)
-        S = nlpsol("S", "ipopt", rec_nlp)    
-        # eval_dict = ps.validate_fd(dx_dp_num, S, nlp_diff.nlp_bounds_unreduced, nlp_sol["p"], nlp_sol["x"], n_eval= 10, step_size= 1e-3)
-        abs_env_error = ps.validate_env_theorem(dx_dp_num, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
-        # abs_env_error = ps.validate_env_theorem(dx_dp_num, vertcat(nlp_sol["x"],nlp_sol["lam_g"]), nlp_sol["p"], rec_nlp, return_matrices=False)
-        assert abs_env_error.max()<1e-8
-    
-    
+  
 
     if show_animation:
         graphics.plot_results(t_ind=k)
@@ -190,11 +141,6 @@ for k in range(10):
         plt.pause(0.01)
 
 # input('Press any key to exit.')
-
-# Store results:
-if store_results:
-    do_mpc.data.save_results([mpc, simulator], 'batch_reactor_MPC')
-
 
 pr.disable()
 
