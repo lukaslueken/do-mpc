@@ -29,4 +29,10 @@ testing/sample_results/*.pkl
 
 testing/model.pkl
 
-.venv/
+*.code-workspace
+
+.vscode/launch.json
+
+.vscode/settings.json
+
+*.prof
