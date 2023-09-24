@@ -542,6 +542,10 @@ class Simulator(do_mpc.model.IteratedVariables):
         sim_z_num = self.sim_z_num
         sim_p_num = self.sim_p_num
 
+        # aux_new = self.sim_aux_expression_fun(sim_x_num, sim_z_num, sim_p_num)
+
+        # self.sim_aux_num.master = aux_new # actually at current time step
+
         if self.model.model_type == 'discrete':
             if self.model.n_z > 0: # Solve DAE only when it exists ...
                 r = self.discrete_dae_solver(x0 = sim_z_num, ubg = 0, lbg = 0, p=castools.vertcat(sim_x_num,sim_p_num))
@@ -628,7 +632,8 @@ class Simulator(do_mpc.model.IteratedVariables):
             aux0 = self.sim_aux_expression_fun(x0, z0, self.sim_p_num)
         else:
             # .master is chosen so that a copy is created of the variables.
-            aux0 = self.sim_aux_num.master
+            # aux0 = self.sim_aux_num.master
+            aux0 = self.sim_aux_expression_fun(x0, z0, self.sim_p_num)
 
         x_next = self.simulate()
 
