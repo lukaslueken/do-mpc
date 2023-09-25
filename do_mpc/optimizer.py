@@ -464,6 +464,7 @@ class Optimizer:
         if self.settings.store_lagr_multiplier == True:
             # Create data_field for the lagrange multipliers
             self.data.data_fields.update({'_lam_g_num': self.n_opt_lagr})
+            self.data.data_fields.update({'_lam_x_num': self.n_opt_x}) # TODO: check
         if len(self.settings.store_solver_stats) > 0:
             # These are valid arguments for solver stats:
             solver_stats = ['iter_count', 'iterations', 'n_call_S', 'n_call_callback_fun',

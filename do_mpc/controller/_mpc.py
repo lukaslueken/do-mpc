@@ -932,11 +932,13 @@ class MPC(do_mpc.optimizer.Optimizer, do_mpc.model.IteratedVariables):
         if self.settings.store_full_solution == True:
             opt_x_num_unscaled = self.opt_x_num_unscaled
             opt_aux_num = self.opt_aux_num
-            self.data.update(_opt_x_num = opt_x_num_unscaled)
+            self.data.update(_opt_x_num = opt_x_num_unscaled) # TODO: check if this needs to be redone; e.g. opt_x_num scaled and unscaled
             self.data.update(_opt_aux_num = opt_aux_num)
         if self.settings.store_lagr_multiplier == True:
             lam_g_num = self.lam_g_num
+            lam_x_num = self.lam_x_num
             self.data.update(_lam_g_num = lam_g_num)
+            self.data.update(_lam_x_num = lam_x_num)
         if len(self.settings.store_solver_stats) > 0:
             solver_stats = self.solver_stats
             store_solver_stats = self.settings.store_solver_stats
